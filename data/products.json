@@ -1,0 +1,1270 @@
+{
+  "_meta": {
+    "notice": "가짜 데이터(과제용)",
+    "description": "진짜후기 쇼핑 비교 에이전트용 샘플 상품 카탈로그. 브랜드·판매처·카드·멤버십·가격·링크는 모두 가상이며 실제 시세가 아니다.",
+    "is_fake": true,
+    "base_date": "2026-11-11",
+    "currency": "KRW",
+    "count": 40,
+    "categories": [
+      "무선청소기",
+      "공기청정기",
+      "전기포트",
+      "가습기",
+      "음식물처리기"
+    ],
+    "field_notes": {
+      "product_id": "판매처별 상품(리스팅) ID. 같은 model_id를 여러 판매처가 팔 수 있다.",
+      "model_id": "같은 모델 묶음 ID (판매처 간 실결제가 비교용)",
+      "price": "판매가(원)",
+      "shipping_fee": "배송비(원), 0이면 무료배송",
+      "card_discounts": "type=rate면 value는 할인율, amount면 정액(원). min_amount 이상 결제 시 적용, max_discount는 최대 할인액",
+      "membership_discounts": "판매처 멤버십 할인. free_shipping=true면 배송비 면제",
+      "link": "예약 도메인(example.com) 가짜 링크"
+    },
+    "cards": [
+      "한결카드",
+      "누리카드",
+      "새봄카드",
+      "다솜카드"
+    ],
+    "memberships": {
+      "하늘몰": "하늘몰 VIP",
+      "바로마켓": "바로플러스",
+      "누리쇼핑": "누리패스",
+      "온새몰": "온새 멤버스"
+    }
+  },
+  "products": [
+    {
+      "product_id": "VC-001",
+      "model_id": "VC-M1",
+      "name": "클린웨이브 V7 사일런트 무선청소기",
+      "brand": "클린웨이브",
+      "category": "무선청소기",
+      "price": 249000,
+      "shipping_fee": 0,
+      "mall": "하늘몰",
+      "card_discounts": [
+        {
+          "card": "한결카드",
+          "type": "rate",
+          "value": 0.05,
+          "min_amount": 100000,
+          "max_discount": 15000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "하늘몰 VIP",
+          "type": "rate",
+          "value": 0.03,
+          "max_discount": 15000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://haneul-mall.example.com/products/VC-001",
+      "specs": {
+        "type": "스틱형",
+        "weight_kg": 1.4,
+        "noise_db": 62,
+        "battery_min": 35,
+        "dustbin_l": 0.4
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "VC-002",
+      "model_id": "VC-M1",
+      "name": "클린웨이브 V7 사일런트 무선청소기",
+      "brand": "클린웨이브",
+      "category": "무선청소기",
+      "price": 239000,
+      "shipping_fee": 3000,
+      "mall": "바로마켓",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/VC-002",
+      "specs": {
+        "type": "스틱형",
+        "weight_kg": 1.4,
+        "noise_db": 62,
+        "battery_min": 35,
+        "dustbin_l": 0.4
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "VC-003",
+      "model_id": "VC-M1",
+      "name": "클린웨이브 V7 사일런트 무선청소기",
+      "brand": "클린웨이브",
+      "category": "무선청소기",
+      "price": 255000,
+      "shipping_fee": 0,
+      "mall": "모아딜",
+      "card_discounts": [
+        {
+          "card": "누리카드",
+          "type": "rate",
+          "value": 0.1,
+          "min_amount": 200000,
+          "max_discount": 30000
+        }
+      ],
+      "membership_discounts": [],
+      "link": "https://moa-deal.example.com/products/VC-003",
+      "specs": {
+        "type": "스틱형",
+        "weight_kg": 1.4,
+        "noise_db": 62,
+        "battery_min": 35,
+        "dustbin_l": 0.4
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "VC-004",
+      "model_id": "VC-M2",
+      "name": "에어리움 터보 X9 무선청소기",
+      "brand": "에어리움",
+      "category": "무선청소기",
+      "price": 429000,
+      "shipping_fee": 0,
+      "mall": "바로마켓",
+      "card_discounts": [
+        {
+          "card": "새봄카드",
+          "type": "rate",
+          "value": 0.07,
+          "min_amount": 300000,
+          "max_discount": 30000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/VC-004",
+      "specs": {
+        "type": "스틱형",
+        "weight_kg": 2.6,
+        "noise_db": 78,
+        "battery_min": 60,
+        "dustbin_l": 0.8
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "VC-005",
+      "model_id": "VC-M2",
+      "name": "에어리움 터보 X9 무선청소기",
+      "brand": "에어리움",
+      "category": "무선청소기",
+      "price": 419000,
+      "shipping_fee": 5000,
+      "mall": "누리쇼핑",
+      "card_discounts": [
+        {
+          "card": "한결카드",
+          "type": "amount",
+          "value": 20000,
+          "min_amount": 300000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "누리패스",
+          "type": "amount",
+          "value": 5000,
+          "min_amount": 100000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://nuri-shopping.example.com/products/VC-005",
+      "specs": {
+        "type": "스틱형",
+        "weight_kg": 2.6,
+        "noise_db": 78,
+        "battery_min": 60,
+        "dustbin_l": 0.8
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "VC-006",
+      "model_id": "VC-M3",
+      "name": "미라홈 슬림 S3 무선청소기",
+      "brand": "미라홈",
+      "category": "무선청소기",
+      "price": 189000,
+      "shipping_fee": 2500,
+      "mall": "온새몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "온새 멤버스",
+          "type": "rate",
+          "value": 0.02,
+          "max_discount": 10000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://onsae-mall.example.com/products/VC-006",
+      "specs": {
+        "type": "스틱형",
+        "weight_kg": 1.2,
+        "noise_db": 70,
+        "battery_min": 20,
+        "dustbin_l": 0.3
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "VC-007",
+      "model_id": "VC-M4",
+      "name": "바람결 펫케어 P5 무선청소기",
+      "brand": "바람결",
+      "category": "무선청소기",
+      "price": 329000,
+      "shipping_fee": 0,
+      "mall": "모아딜",
+      "card_discounts": [
+        {
+          "card": "다솜카드",
+          "type": "rate",
+          "value": 0.08,
+          "min_amount": 200000,
+          "max_discount": 25000
+        }
+      ],
+      "membership_discounts": [],
+      "link": "https://moa-deal.example.com/products/VC-007",
+      "specs": {
+        "type": "스틱형",
+        "weight_kg": 1.9,
+        "noise_db": 72,
+        "battery_min": 45,
+        "dustbin_l": 0.6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "VC-008",
+      "model_id": "VC-M5",
+      "name": "숨결 듀얼 D2 물걸레 무선청소기",
+      "brand": "숨결",
+      "category": "무선청소기",
+      "price": 379000,
+      "shipping_fee": 0,
+      "mall": "누리쇼핑",
+      "card_discounts": [
+        {
+          "card": "한결카드",
+          "type": "rate",
+          "value": 0.05,
+          "min_amount": 300000,
+          "max_discount": 20000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "누리패스",
+          "type": "amount",
+          "value": 5000,
+          "min_amount": 100000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://nuri-shopping.example.com/products/VC-008",
+      "specs": {
+        "type": "스틱형 물걸레 겸용",
+        "weight_kg": 3.1,
+        "noise_db": 74,
+        "battery_min": 40,
+        "dustbin_l": 0.5
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "AP-001",
+      "model_id": "AP-M1",
+      "name": "에어리움 퓨어 30 공기청정기",
+      "brand": "에어리움",
+      "category": "공기청정기",
+      "price": 199000,
+      "shipping_fee": 0,
+      "mall": "하늘몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "하늘몰 VIP",
+          "type": "rate",
+          "value": 0.03,
+          "max_discount": 15000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://haneul-mall.example.com/products/AP-001",
+      "specs": {
+        "coverage_m2": 33,
+        "sleep_noise_db": 22,
+        "filter_price_won": 29000,
+        "filter_months": 6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "AP-002",
+      "model_id": "AP-M1",
+      "name": "에어리움 퓨어 30 공기청정기",
+      "brand": "에어리움",
+      "category": "공기청정기",
+      "price": 189000,
+      "shipping_fee": 3000,
+      "mall": "바로마켓",
+      "card_discounts": [
+        {
+          "card": "새봄카드",
+          "type": "rate",
+          "value": 0.05,
+          "min_amount": 150000,
+          "max_discount": 10000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/AP-002",
+      "specs": {
+        "coverage_m2": 33,
+        "sleep_noise_db": 22,
+        "filter_price_won": 29000,
+        "filter_months": 6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "AP-003",
+      "model_id": "AP-M1",
+      "name": "에어리움 퓨어 30 공기청정기",
+      "brand": "에어리움",
+      "category": "공기청정기",
+      "price": 205000,
+      "shipping_fee": 0,
+      "mall": "누리쇼핑",
+      "card_discounts": [
+        {
+          "card": "누리카드",
+          "type": "amount",
+          "value": 15000,
+          "min_amount": 150000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "누리패스",
+          "type": "amount",
+          "value": 5000,
+          "min_amount": 100000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://nuri-shopping.example.com/products/AP-003",
+      "specs": {
+        "coverage_m2": 33,
+        "sleep_noise_db": 22,
+        "filter_price_won": 29000,
+        "filter_months": 6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "AP-004",
+      "model_id": "AP-M2",
+      "name": "클린웨이브 맥스 60 공기청정기",
+      "brand": "클린웨이브",
+      "category": "공기청정기",
+      "price": 469000,
+      "shipping_fee": 0,
+      "mall": "모아딜",
+      "card_discounts": [
+        {
+          "card": "다솜카드",
+          "type": "rate",
+          "value": 0.1,
+          "min_amount": 300000,
+          "max_discount": 40000
+        }
+      ],
+      "membership_discounts": [],
+      "link": "https://moa-deal.example.com/products/AP-004",
+      "specs": {
+        "coverage_m2": 62,
+        "sleep_noise_db": 30,
+        "filter_price_won": 69000,
+        "filter_months": 12
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "AP-005",
+      "model_id": "AP-M2",
+      "name": "클린웨이브 맥스 60 공기청정기",
+      "brand": "클린웨이브",
+      "category": "공기청정기",
+      "price": 459000,
+      "shipping_fee": 5000,
+      "mall": "온새몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "온새 멤버스",
+          "type": "rate",
+          "value": 0.02,
+          "max_discount": 10000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://onsae-mall.example.com/products/AP-005",
+      "specs": {
+        "coverage_m2": 62,
+        "sleep_noise_db": 30,
+        "filter_price_won": 69000,
+        "filter_months": 12
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "AP-006",
+      "model_id": "AP-M3",
+      "name": "숨결 미니 15 공기청정기",
+      "brand": "숨결",
+      "category": "공기청정기",
+      "price": 119000,
+      "shipping_fee": 0,
+      "mall": "바로마켓",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/AP-006",
+      "specs": {
+        "coverage_m2": 15,
+        "sleep_noise_db": 25,
+        "filter_price_won": 15000,
+        "filter_months": 4
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "AP-007",
+      "model_id": "AP-M4",
+      "name": "미라홈 케어 40 공기청정기",
+      "brand": "미라홈",
+      "category": "공기청정기",
+      "price": 299000,
+      "shipping_fee": 0,
+      "mall": "하늘몰",
+      "card_discounts": [
+        {
+          "card": "한결카드",
+          "type": "rate",
+          "value": 0.07,
+          "min_amount": 200000,
+          "max_discount": 20000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "하늘몰 VIP",
+          "type": "rate",
+          "value": 0.03,
+          "max_discount": 15000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://haneul-mall.example.com/products/AP-007",
+      "specs": {
+        "coverage_m2": 40,
+        "sleep_noise_db": 24,
+        "filter_price_won": 39000,
+        "filter_months": 6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "AP-008",
+      "model_id": "AP-M5",
+      "name": "포근 키즈 35 공기청정기",
+      "brand": "포근",
+      "category": "공기청정기",
+      "price": 279000,
+      "shipping_fee": 0,
+      "mall": "누리쇼핑",
+      "card_discounts": [
+        {
+          "card": "새봄카드",
+          "type": "rate",
+          "value": 0.05,
+          "min_amount": 200000,
+          "max_discount": 15000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "누리패스",
+          "type": "amount",
+          "value": 5000,
+          "min_amount": 100000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://nuri-shopping.example.com/products/AP-008",
+      "specs": {
+        "coverage_m2": 35,
+        "sleep_noise_db": 21,
+        "filter_price_won": 35000,
+        "filter_months": 6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "KT-001",
+      "model_id": "KT-M1",
+      "name": "미라홈 글라스 1.7L 전기포트",
+      "brand": "미라홈",
+      "category": "전기포트",
+      "price": 39000,
+      "shipping_fee": 3000,
+      "mall": "하늘몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "하늘몰 VIP",
+          "type": "rate",
+          "value": 0.03,
+          "max_discount": 15000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://haneul-mall.example.com/products/KT-001",
+      "specs": {
+        "capacity_l": 1.7,
+        "material": "유리",
+        "temp_control": false,
+        "boil_min": 5
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "KT-002",
+      "model_id": "KT-M1",
+      "name": "미라홈 글라스 1.7L 전기포트",
+      "brand": "미라홈",
+      "category": "전기포트",
+      "price": 35900,
+      "shipping_fee": 3500,
+      "mall": "모아딜",
+      "card_discounts": [],
+      "membership_discounts": [],
+      "link": "https://moa-deal.example.com/products/KT-002",
+      "specs": {
+        "capacity_l": 1.7,
+        "material": "유리",
+        "temp_control": false,
+        "boil_min": 5
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "KT-003",
+      "model_id": "KT-M1",
+      "name": "미라홈 글라스 1.7L 전기포트",
+      "brand": "미라홈",
+      "category": "전기포트",
+      "price": 41000,
+      "shipping_fee": 0,
+      "mall": "온새몰",
+      "card_discounts": [
+        {
+          "card": "다솜카드",
+          "type": "amount",
+          "value": 3000,
+          "min_amount": 30000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "온새 멤버스",
+          "type": "rate",
+          "value": 0.02,
+          "max_discount": 10000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://onsae-mall.example.com/products/KT-003",
+      "specs": {
+        "capacity_l": 1.7,
+        "material": "유리",
+        "temp_control": false,
+        "boil_min": 5
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "KT-004",
+      "model_id": "KT-M2",
+      "name": "포근 온도조절 T1 전기포트",
+      "brand": "포근",
+      "category": "전기포트",
+      "price": 89000,
+      "shipping_fee": 0,
+      "mall": "바로마켓",
+      "card_discounts": [
+        {
+          "card": "새봄카드",
+          "type": "rate",
+          "value": 0.05,
+          "min_amount": 50000,
+          "max_discount": 5000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/KT-004",
+      "specs": {
+        "capacity_l": 1.2,
+        "material": "스테인리스",
+        "temp_control": true,
+        "temp_range_c": "40-100"
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "KT-005",
+      "model_id": "KT-M2",
+      "name": "포근 온도조절 T1 전기포트",
+      "brand": "포근",
+      "category": "전기포트",
+      "price": 85000,
+      "shipping_fee": 3000,
+      "mall": "누리쇼핑",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "누리패스",
+          "type": "amount",
+          "value": 5000,
+          "min_amount": 100000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://nuri-shopping.example.com/products/KT-005",
+      "specs": {
+        "capacity_l": 1.2,
+        "material": "스테인리스",
+        "temp_control": true,
+        "temp_range_c": "40-100"
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "KT-006",
+      "model_id": "KT-M3",
+      "name": "클린웨이브 무소음 Q 전기포트",
+      "brand": "클린웨이브",
+      "category": "전기포트",
+      "price": 69000,
+      "shipping_fee": 0,
+      "mall": "모아딜",
+      "card_discounts": [],
+      "membership_discounts": [],
+      "link": "https://moa-deal.example.com/products/KT-006",
+      "specs": {
+        "capacity_l": 1.0,
+        "material": "스테인리스",
+        "temp_control": false,
+        "noise_db": 38
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "KT-007",
+      "model_id": "KT-M4",
+      "name": "숨결 미니 0.8L 전기포트",
+      "brand": "숨결",
+      "category": "전기포트",
+      "price": 29000,
+      "shipping_fee": 2500,
+      "mall": "온새몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "온새 멤버스",
+          "type": "rate",
+          "value": 0.02,
+          "max_discount": 10000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://onsae-mall.example.com/products/KT-007",
+      "specs": {
+        "capacity_l": 0.8,
+        "material": "스테인리스",
+        "temp_control": false
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "KT-008",
+      "model_id": "KT-M5",
+      "name": "바람결 드립 구스넥 G 전기포트",
+      "brand": "바람결",
+      "category": "전기포트",
+      "price": 119000,
+      "shipping_fee": 0,
+      "mall": "하늘몰",
+      "card_discounts": [
+        {
+          "card": "한결카드",
+          "type": "rate",
+          "value": 0.05,
+          "min_amount": 100000,
+          "max_discount": 10000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "하늘몰 VIP",
+          "type": "rate",
+          "value": 0.03,
+          "max_discount": 15000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://haneul-mall.example.com/products/KT-008",
+      "specs": {
+        "capacity_l": 0.9,
+        "material": "스테인리스",
+        "temp_control": true,
+        "temp_range_c": "60-100"
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "HM-001",
+      "model_id": "HM-M1",
+      "name": "숨결 가열식 H5 가습기",
+      "brand": "숨결",
+      "category": "가습기",
+      "price": 159000,
+      "shipping_fee": 0,
+      "mall": "하늘몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "하늘몰 VIP",
+          "type": "rate",
+          "value": 0.03,
+          "max_discount": 15000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://haneul-mall.example.com/products/HM-001",
+      "specs": {
+        "type": "가열식",
+        "tank_l": 5,
+        "power_w": 280,
+        "noise_db": 30
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "HM-002",
+      "model_id": "HM-M1",
+      "name": "숨결 가열식 H5 가습기",
+      "brand": "숨결",
+      "category": "가습기",
+      "price": 149000,
+      "shipping_fee": 3000,
+      "mall": "바로마켓",
+      "card_discounts": [
+        {
+          "card": "새봄카드",
+          "type": "rate",
+          "value": 0.05,
+          "min_amount": 100000,
+          "max_discount": 10000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/HM-002",
+      "specs": {
+        "type": "가열식",
+        "tank_l": 5,
+        "power_w": 280,
+        "noise_db": 30
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "HM-003",
+      "model_id": "HM-M1",
+      "name": "숨결 가열식 H5 가습기",
+      "brand": "숨결",
+      "category": "가습기",
+      "price": 162000,
+      "shipping_fee": 0,
+      "mall": "누리쇼핑",
+      "card_discounts": [
+        {
+          "card": "누리카드",
+          "type": "amount",
+          "value": 15000,
+          "min_amount": 150000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "누리패스",
+          "type": "amount",
+          "value": 5000,
+          "min_amount": 100000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://nuri-shopping.example.com/products/HM-003",
+      "specs": {
+        "type": "가열식",
+        "tank_l": 5,
+        "power_w": 280,
+        "noise_db": 30
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "HM-004",
+      "model_id": "HM-M2",
+      "name": "에어리움 초음파 U3 가습기",
+      "brand": "에어리움",
+      "category": "가습기",
+      "price": 89000,
+      "shipping_fee": 0,
+      "mall": "모아딜",
+      "card_discounts": [],
+      "membership_discounts": [],
+      "link": "https://moa-deal.example.com/products/HM-004",
+      "specs": {
+        "type": "초음파식",
+        "tank_l": 3,
+        "power_w": 25,
+        "noise_db": 26
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "HM-005",
+      "model_id": "HM-M3",
+      "name": "포근 복합식 C7 가습기",
+      "brand": "포근",
+      "category": "가습기",
+      "price": 249000,
+      "shipping_fee": 0,
+      "mall": "바로마켓",
+      "card_discounts": [
+        {
+          "card": "새봄카드",
+          "type": "rate",
+          "value": 0.07,
+          "min_amount": 200000,
+          "max_discount": 20000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/HM-005",
+      "specs": {
+        "type": "복합식(가열+초음파)",
+        "tank_l": 4.5,
+        "power_w": 120,
+        "noise_db": 28
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "HM-006",
+      "model_id": "HM-M3",
+      "name": "포근 복합식 C7 가습기",
+      "brand": "포근",
+      "category": "가습기",
+      "price": 239000,
+      "shipping_fee": 4000,
+      "mall": "온새몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "온새 멤버스",
+          "type": "rate",
+          "value": 0.02,
+          "max_discount": 10000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://onsae-mall.example.com/products/HM-006",
+      "specs": {
+        "type": "복합식(가열+초음파)",
+        "tank_l": 4.5,
+        "power_w": 120,
+        "noise_db": 28
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "HM-007",
+      "model_id": "HM-M4",
+      "name": "미라홈 대용량 L9 가습기",
+      "brand": "미라홈",
+      "category": "가습기",
+      "price": 199000,
+      "shipping_fee": 0,
+      "mall": "누리쇼핑",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "누리패스",
+          "type": "amount",
+          "value": 5000,
+          "min_amount": 100000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://nuri-shopping.example.com/products/HM-007",
+      "specs": {
+        "type": "초음파식",
+        "tank_l": 9,
+        "power_w": 35,
+        "noise_db": 33
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "HM-008",
+      "model_id": "HM-M5",
+      "name": "바람결 에어워셔 W2 가습기",
+      "brand": "바람결",
+      "category": "가습기",
+      "price": 329000,
+      "shipping_fee": 0,
+      "mall": "모아딜",
+      "card_discounts": [
+        {
+          "card": "다솜카드",
+          "type": "rate",
+          "value": 0.1,
+          "min_amount": 300000,
+          "max_discount": 30000
+        }
+      ],
+      "membership_discounts": [],
+      "link": "https://moa-deal.example.com/products/HM-008",
+      "specs": {
+        "type": "자연기화식(에어워셔)",
+        "tank_l": 7,
+        "power_w": 15,
+        "noise_db": 27
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "FW-001",
+      "model_id": "FW-M1",
+      "name": "다온 건조분쇄 F1 음식물처리기",
+      "brand": "다온",
+      "category": "음식물처리기",
+      "price": 399000,
+      "shipping_fee": 0,
+      "mall": "하늘몰",
+      "card_discounts": [
+        {
+          "card": "한결카드",
+          "type": "rate",
+          "value": 0.07,
+          "min_amount": 300000,
+          "max_discount": 30000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "하늘몰 VIP",
+          "type": "rate",
+          "value": 0.03,
+          "max_discount": 15000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://haneul-mall.example.com/products/FW-001",
+      "specs": {
+        "type": "건조분쇄식",
+        "capacity_l": 2.5,
+        "noise_db": 45,
+        "cycle_hours": 6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "FW-002",
+      "model_id": "FW-M1",
+      "name": "다온 건조분쇄 F1 음식물처리기",
+      "brand": "다온",
+      "category": "음식물처리기",
+      "price": 389000,
+      "shipping_fee": 0,
+      "mall": "바로마켓",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/FW-002",
+      "specs": {
+        "type": "건조분쇄식",
+        "capacity_l": 2.5,
+        "noise_db": 45,
+        "cycle_hours": 6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "FW-003",
+      "model_id": "FW-M1",
+      "name": "다온 건조분쇄 F1 음식물처리기",
+      "brand": "다온",
+      "category": "음식물처리기",
+      "price": 379000,
+      "shipping_fee": 6000,
+      "mall": "온새몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "온새 멤버스",
+          "type": "rate",
+          "value": 0.02,
+          "max_discount": 10000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://onsae-mall.example.com/products/FW-003",
+      "specs": {
+        "type": "건조분쇄식",
+        "capacity_l": 2.5,
+        "noise_db": 45,
+        "cycle_hours": 6
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "FW-004",
+      "model_id": "FW-M2",
+      "name": "클린웨이브 미생물 B2 음식물처리기",
+      "brand": "클린웨이브",
+      "category": "음식물처리기",
+      "price": 499000,
+      "shipping_fee": 0,
+      "mall": "모아딜",
+      "card_discounts": [
+        {
+          "card": "다솜카드",
+          "type": "rate",
+          "value": 0.1,
+          "min_amount": 400000,
+          "max_discount": 50000
+        }
+      ],
+      "membership_discounts": [],
+      "link": "https://moa-deal.example.com/products/FW-004",
+      "specs": {
+        "type": "미생물 발효식",
+        "capacity_l": 3.0,
+        "noise_db": 30
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "FW-005",
+      "model_id": "FW-M2",
+      "name": "클린웨이브 미생물 B2 음식물처리기",
+      "brand": "클린웨이브",
+      "category": "음식물처리기",
+      "price": 489000,
+      "shipping_fee": 0,
+      "mall": "누리쇼핑",
+      "card_discounts": [
+        {
+          "card": "누리카드",
+          "type": "amount",
+          "value": 30000,
+          "min_amount": 400000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "누리패스",
+          "type": "amount",
+          "value": 5000,
+          "min_amount": 100000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://nuri-shopping.example.com/products/FW-005",
+      "specs": {
+        "type": "미생물 발효식",
+        "capacity_l": 3.0,
+        "noise_db": 30
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "FW-006",
+      "model_id": "FW-M3",
+      "name": "미라홈 컴팩트 C1 음식물처리기",
+      "brand": "미라홈",
+      "category": "음식물처리기",
+      "price": 199000,
+      "shipping_fee": 0,
+      "mall": "바로마켓",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "바로플러스",
+          "type": "rate",
+          "value": 0.05,
+          "max_discount": 30000,
+          "free_shipping": true
+        }
+      ],
+      "link": "https://baro-market.example.com/products/FW-006",
+      "specs": {
+        "type": "건조식",
+        "capacity_l": 1.5,
+        "noise_db": 48
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "FW-007",
+      "model_id": "FW-M4",
+      "name": "숨결 냉장보관 R1 음식물쓰레기통",
+      "brand": "숨결",
+      "category": "음식물처리기",
+      "price": 129000,
+      "shipping_fee": 0,
+      "mall": "하늘몰",
+      "card_discounts": [],
+      "membership_discounts": [
+        {
+          "membership": "하늘몰 VIP",
+          "type": "rate",
+          "value": 0.03,
+          "max_discount": 15000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://haneul-mall.example.com/products/FW-007",
+      "specs": {
+        "type": "냉장 보관식",
+        "capacity_l": 3.0,
+        "noise_db": 35
+      },
+      "is_sample": true
+    },
+    {
+      "product_id": "FW-008",
+      "model_id": "FW-M5",
+      "name": "포근 대용량 F4 음식물처리기",
+      "brand": "포근",
+      "category": "음식물처리기",
+      "price": 459000,
+      "shipping_fee": 0,
+      "mall": "온새몰",
+      "card_discounts": [
+        {
+          "card": "다솜카드",
+          "type": "rate",
+          "value": 0.07,
+          "min_amount": 300000,
+          "max_discount": 30000
+        }
+      ],
+      "membership_discounts": [
+        {
+          "membership": "온새 멤버스",
+          "type": "rate",
+          "value": 0.02,
+          "max_discount": 10000,
+          "free_shipping": false
+        }
+      ],
+      "link": "https://onsae-mall.example.com/products/FW-008",
+      "specs": {
+        "type": "건조분쇄식",
+        "capacity_l": 4.0,
+        "noise_db": 42,
+        "cycle_hours": 5
+      },
+      "is_sample": true
+    }
+  ]
+}

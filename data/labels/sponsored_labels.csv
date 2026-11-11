@@ -1,0 +1,51 @@
+review_id,product_id,label,label_type,rationale
+rv-0007,VC-002,sponsored,hidden_ad,"대가성 문구 없음, 할인코드·과장 표현으로 보아 숨은 광고"
+rv-0016,VC-004,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0017,VC-004,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0018,VC-004,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0023,VC-005,organic,self_purchase,'협찬 아닙니다' 부정 표현 포함(단순 키워드 매칭 함정)
+rv-0025,VC-006,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0026,VC-006,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0027,VC-007,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0028,VC-007,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0029,VC-007,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0034,VC-008,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0037,AP-001,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0039,AP-002,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0040,AP-002,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0047,AP-004,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0048,AP-004,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0056,AP-005,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0060,AP-006,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0061,AP-007,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0063,AP-007,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0070,KT-001,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0071,KT-001,organic,self_purchase,'협찬 아닙니다' 부정 표현 포함(단순 키워드 매칭 함정)
+rv-0072,KT-002,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0079,KT-003,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0080,KT-003,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0082,KT-003,sponsored,hidden_ad,"대가성 문구 없음, 할인코드·과장 표현으로 보아 숨은 광고"
+rv-0084,KT-004,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0090,KT-005,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0095,KT-007,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0100,KT-007,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0105,HM-001,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0108,HM-001,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0110,HM-002,sponsored,hidden_ad,"대가성 문구 없음, 할인코드·과장 표현으로 보아 숨은 광고"
+rv-0112,HM-002,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0122,HM-004,organic,self_purchase,'협찬 아닙니다' 부정 표현 포함(단순 키워드 매칭 함정)
+rv-0126,HM-005,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0131,HM-006,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0132,HM-006,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0134,HM-007,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0138,HM-008,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0145,FW-001,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0153,FW-003,organic,self_purchase,'협찬 아닙니다' 부정 표현 포함(단순 키워드 매칭 함정)
+rv-0155,FW-003,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0157,FW-004,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0161,FW-005,organic,self_purchase,'협찬 아닙니다' 부정 표현 포함(단순 키워드 매칭 함정)
+rv-0162,FW-005,sponsored,hidden_ad,"대가성 문구 없음, 할인코드·과장 표현으로 보아 숨은 광고"
+rv-0163,FW-005,sponsored,explicit_disclosure,대가성 문구 명시(제품 제공·원고료·체험단·#협찬)
+rv-0168,FW-007,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0173,FW-008,organic,self_purchase,직접 구매 표현·장단점 균형
+rv-0174,FW-008,organic,self_purchase,직접 구매 표현·장단점 균형
