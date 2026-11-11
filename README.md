@@ -1,13 +1,13 @@
 # 미니 PJT: 진짜후기 쇼핑 비교 에이전트
 
 ## 무엇을 푸나
-최저가와 리뷰는 넘쳐나지만 협찬 리뷰와 결제 조건 때문에 "나한테 진짜 맞는 상품"을 고르기 어려운 문제를, 협찬 리뷰를 걸러낸 실구매 후기와 내 조건 기준 실결제가로 상위 3개를 추천해 해결한다.
+최저가와 리뷰는 넘쳐나지만 협찬 리뷰와 결제 조건 때문에 "나한테 진짜 맞는 상품"을 고르기 어려운 문제를, 협찬 리뷰를 걸러낸 실구매 후기와 내 조건 기준 실결제가로 서로 다른 모델 상위 3개를 추천하고 모델마다 판매처별 실결제가를 비교해 해결한다.
 
 ## 활용한 패턴 (Day 1~7)
 <!-- TODO: 각 패턴을 배운 Day 번호로 X를 바꾸세요 -->
 - Day 1: LCEL chain (Pydantic 구조화 출력) — 리뷰 분석·추천 카드를 `prompt | llm.with_structured_output(ReviewAnalysis)` 체인으로 생성하고, 같은 Pydantic 모델을 API 응답 스키마로 재사용
 - Day 3: ReAct (도구 자율 선택) — 에이전트가 질문에 따라 상품 검색·리뷰 검색·가격 계산 도구를 스스로 골라 호출 (요청당 최대 6회)
-- Day 2: RAG (하이브리드·리랭킹·쿼리 확장) — 블로그 리뷰를 BM25 + 벡터 앙상블로 검색하고 Cross-encoder로 리랭킹, 사용자 조건어로 멀티 쿼리 확장
+- Day 2: RAG (하이브리드·리랭킹·쿼리 확장) — 리뷰를 BM25 + 벡터 앙상블로 검색(후보 모델로 범위 제한)하고 Cross-encoder로 리랭킹, 사용자 조건어로 멀티 쿼리 확장
 - Day 4: 도구 다중 (DB·계산기·외부 API) — 네이버 블로그 검색 API(NAVER API HUB), 상품 카탈로그(샘플 JSON), 가격 이력 SQLite, 실결제가 계산기
 - Day 6: 가드레일 (PII·프롬프트 인젝션) — 입력과 리뷰 본문의 인젝션 문구 탐지·제거, 응답의 PII 마스킹, 구매 대행·규제 품목·범위 밖 요청 거절
 - Day 11: Observability · Trace — LangSmith로 체인·도구·에이전트 호출 전 과정 기록
@@ -42,7 +42,7 @@
   → RAGAS 4지표 + LLM-as-Judge 채점 → round1/round2 리포트
 ```
 
-추천 요청 한 건의 흐름: ① 조건 파악(부족하면 되묻기) → ② 상품 수집 → ③ 리뷰 수집 → ④ 협찬 분리·조건별 요약 → ⑤ 점수화·실결제가 계산 → ⑥ 근거·출처가 달린 Top 3 추천. 후보가 3개 미만이면 검색어를 바꿔 ②로 돌아간다(최대 2회).
+추천 요청 한 건의 흐름: ① 조건 파악(부족하면 되묻기) → ② 상품 수집 → ③ 리뷰 수집 → ④ 협찬 분리·조건별 요약 → ⑤ 점수화·실결제가 계산 → ⑥ 근거·출처가 달린 Top 3 추천(서로 다른 모델 3개, 카드마다 판매처별 실결제가 비교). 조건에 맞는 모델이 3개 미만이면 검색어를 바꿔 ②로 돌아간다(최대 2회).
 
 ## 실행 방법
 
@@ -57,7 +57,7 @@
 ```
 NAVER_CLIENT_ID=...            # NAVER API HUB 블로그 검색 키 ID (헤더 X-NCP-APIGW-API-KEY-ID)
 NAVER_CLIENT_SECRET=...        # NAVER API HUB 블로그 검색 키 (헤더 X-NCP-APIGW-API-KEY)
-REVIEW_SOURCE=sample           # blog: 블로그 API 실데이터 / sample: 샘플 리뷰 (평가는 sample)
+REVIEW_SOURCE=sample           # blog: 블로그 API 실데이터("카테고리 + 조건어" 검색, 참고 후기로 별도 표시) / sample: 샘플 리뷰 (평가는 sample)
 RETRIEVER_MODE=vector          # vector: 1차 기준선 / hybrid: BM25+벡터+리랭킹 (2차)
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
@@ -86,7 +86,7 @@ docker run --env-file .env -p 8000:8000 -p 8501:8501 `
 ### 2-B. 로컬에서 실행
 ```bash
 pip install --no-deps -r requirements.txt   # 전체 의존성 고정 목록 (사유는 requirements.txt 상단 주석)
-bash run.sh        # 리뷰 인덱싱 → FastAPI(8000) → Streamlit(8501) 순서로 실행
+bash run.sh        # 가격 DB·리뷰 인덱싱(없을 때만) → FastAPI(8000) → Streamlit(8501) 순서로 실행
 ```
 
 ### 3. 사용
@@ -95,12 +95,12 @@ bash run.sh        # 리뷰 인덱싱 → FastAPI(8000) → Streamlit(8501) 순�
 ```bash
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
-  -d '{"question": "원룸에서 쓸 30만원 이하 무선청소기 추천해줘. 소음이 제일 중요해"}'
+  -d '{"question": "원룸에서 쓸 35만원 이하 무선청소기 추천해줘. 소음이 제일 중요해"}'
 ```
 - 응답 형식:
 ```json
 {
-  "answer": "근거 기반 응답 (Top 3 추천, 가격·판매처, 리뷰 근거, 출처 링크)",
+  "answer": "근거 기반 응답 (Top 3 모델 추천, 판매처별 실결제가, 리뷰 근거, 출처 링크)",
   "contexts": [{"doc_id": "blog-223456789#c3", "text": "리뷰 청크 원문"}],
   "trace": [{"step": "retrieve_reviews", "input": "확장 쿼리", "output": "리뷰 청크 8개"}]
 }
@@ -120,7 +120,7 @@ python src/evaluate.py --queries evaluation/test_queries.csv --round 1
 - faithfulness: 0.XX (목표 0.85 이상)
 - answer_relevancy: 0.XX (목표 0.80 이상)
 
-측정 방식: RAG를 거치는 positive·edge 19문항 대상, `retrieve_reviews` 결과를 retrieved_contexts로 사용. 스키마에 정답 컬럼이 없어 context_recall의 reference는 `expected_traits`를 문장으로 이어 붙여 대신함.
+측정 방식: positive·edge 19문항 중 RAG를 거친(contexts가 있는) 문항 대상, `retrieve_reviews` 결과를 retrieved_contexts로 사용. 스키마에 정답 컬럼이 없어 context_recall의 reference는 `expected_traits`를 문장으로 이어 붙여 대신함.
 
 1·2차 상세 결과: `evaluation/round1_report.md`, `evaluation/round2_report.md`
 
@@ -143,7 +143,7 @@ python src/evaluate.py --queries evaluation/test_queries.csv --round 1
   - 예: 문구 규칙으로 1차 거르고 LLM 판별로 2차 확인, 판단이 어려운 리뷰는 "판별 불가"로 따로 표시했다.
 - **남은 한계 · 향후 개선 방향**
   - 상품·가격이 샘플 카탈로그라 실제 시세를 반영하지 못한다 (네이버 쇼핑 검색 API가 2026-07-31 대체 API 없이 종료) → `search_products` 인터페이스를 유지했으므로 공식 가격 API 확보 시 데이터 소스만 교체.
-  - 블로그 검색 API는 요약 스니펫만 제공해 실데이터 모드의 협찬 판별 근거가 약하다 → 쇼핑몰 구매평 등 본문 제공 API 연동.
+  - 블로그 검색 API는 요약 스니펫만 제공해 실데이터 모드의 협찬 판별 근거가 약하고, 상품명이 가상이라 블로그 결과는 상품 근거가 아닌 참고 후기로만 쓴다 → 쇼핑몰 구매평 등 본문 제공 API 연동.
   - 예: 가격 이력이 짧아 구매 타이밍 판단이 어렵다 → 장기 수집과 가격 알림(HITL 승인) 추가.
 
 ## 핵심 코드 위치

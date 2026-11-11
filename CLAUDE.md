@@ -33,11 +33,13 @@ tests/    pytest (도구·API)
 
 | 도구 | 입력 → 출력 | 구현 |
 | --- | --- | --- |
-| `search_products` | 키워드, 가격 범위 → 상품·가격·판매처 목록 | `data/products.json` (데이터 소스 교체 가능하게 분리) |
-| `fetch_reviews` | 상품명 → 리뷰 원문, 벡터 DB 색인 | `REVIEW_SOURCE`에 따라 블로그 API 또는 샘플 리뷰 |
-| `retrieve_reviews` | 확장 쿼리 목록 → 리랭킹된 리뷰 청크 Top k | BM25 + Chroma, Cross-encoder |
+| `search_products` | 키워드, 가격 범위 → 상품·가격·판매처 목록 (`product_id`·`model_id`·할인 정보 포함) | `data/products.json` (데이터 소스 교체 가능하게 분리) |
+| `fetch_reviews` | 상품명 목록(+선택: 조건어) → 리뷰 원문, 벡터 DB 색인 | sample: 모델 단위 샘플 리뷰 / blog: "카테고리 + 조건어" 검색, "실제 블로그 참고 후기"로 별도 표시 |
+| `retrieve_reviews` | 확장 쿼리 목록(+선택: 후보 `model_ids`) → 리랭킹된 리뷰 청크 Top k | BM25 + Chroma, Cross-encoder, `model_ids`로 검색 범위 제한 |
 | `query_price_db` | 상품 ID → 가격 이력 | SQLite `data/prices.db` |
-| `calc_real_price` | 가격, 배송비, 할인 조건 → 실결제가 | 순수 Python 함수 |
+| `calc_real_price` | 판매처별 상품 목록(가격·배송비·할인 조건) + 사용자 보유 카드·멤버십 → 상품별 실결제가 | 순수 Python 함수 |
+
+`fetch_reviews`·`calc_real_price`는 여러 건을 한 번에 처리한다 (추천 1건 = 도구 4회, 재검색 포함 최대 6회).
 
 **API 규약 `POST /query`** — 필드 이름·구조 절대 변경 금지. 요청·응답은 Pydantic 모델.
 
@@ -56,7 +58,9 @@ tests/    pytest (도구·API)
 - Python **3.14.8** (로컬 `.venv`는 `py -3.14`로 생성, Docker 베이스 `python:3.14.8-slim`)
 - LLM: AWS Bedrock Claude, `langchain_aws.ChatBedrockConverse`, 모델 ID는 `BEDROCK_MODEL_ID`
 - 평가 Judge·RAGAS LLM: `JUDGE_MODEL_ID` (생성 모델과 다른 모델). RAGAS 기본값(OpenAI) 사용 금지
-- 에이전트: LangGraph ReAct, 요청당 도구 호출 최대 6회, 후보 3개 미만이면 검색어 바꿔 최대 2회 재검색
+- 에이전트: LangGraph ReAct, 요청당 도구 호출 최대 6회, 조건에 맞는 모델이 3개 미만이면 검색어 바꿔 최대 2회 재검색
+- 되묻기: API는 무상태. UI가 "이전 질문 + 되묻기 + 사용자 답"을 하나의 question으로 이어 붙여 재전송 (최대 2턴)
+- 추천 단위: Top 3는 서로 다른 `model_id` 3개. 같은 모델의 판매처들은 카드 하나에서 실결제가 비교, 리뷰 근거는 `model_id` 단위로 모은다
 - 가격·순위·실결제가는 코드가 계산하고, LLM은 조건 파악·리뷰 해석·요약만 담당
 
 ## 데이터 규칙
@@ -93,7 +97,7 @@ tests/    pytest (도구·API)
 - `DEV_PROMPTS.md`의 단계를 하나씩 진행한다: 완료 기준 확인 → 테스트 → 커밋 → 다음 단계.
 - 11단계(1차 평가) 직전 커밋은 기준선으로 반드시 남긴다.
 - 테스트: `.venv/Scripts/python -m pytest tests/`
-- 실행: `bash run.sh` (인덱싱 → uvicorn 8000 → streamlit 8501), Docker는 README 2-A 참고.
+- 실행: `bash run.sh` (가격 DB·인덱싱(없을 때만) → uvicorn 8000 → streamlit 8501), Docker는 README 2-A 참고.
 
 ## 성공 기준 (PRD "성공 지표")
 
