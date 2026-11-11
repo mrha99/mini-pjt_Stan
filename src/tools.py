@@ -662,7 +662,7 @@ def _discount_amount(base: int, dtype: str, value: float, min_amount: int,
 
 
 def _fmt_rule(dtype: str, value: float, max_discount: int | None) -> str:
-    rule = f"{Decimal(str(value)) * 100:g}%" if dtype == "rate" else f"{int(value):,}원"
+    rule = f"{(Decimal(str(value)) * 100).normalize():f}%" if dtype == "rate" else f"{int(value):,}원"
     if max_discount is not None:
         rule += f" (최대 {max_discount:,}원)"
     return rule
