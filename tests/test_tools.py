@@ -258,24 +258,31 @@ def test_cache_table_survives_reseed(tmp_db):
 # ─────────────────────────────── retrieve_reviews ───────────────────────────────
 
 
-def test_retrieve_reviews_placeholder_until_step4():
+def test_retrieve_reviews_empty_index():
     out = retrieve_reviews.invoke({"queries": ["무선청소기 소음"], "model_ids": ["VC-M1"]})
-    assert out["status"] == "not_ready" and out["chunks"] == []
+    assert out["status"] == "empty_index" and out["chunks"] == []
 
 
-def test_retrieve_reviews_calls_retriever_when_ready(monkeypatch):
-    from src import retriever
+def test_retrieve_reviews_calls_retriever(monkeypatch):
+    from src import indexer, retriever
 
+    indexer.build_index()
     seen = {}
 
-    def fake_retrieve(queries, model_ids, top_k):
-        seen.update(queries=queries, model_ids=model_ids, top_k=top_k)
-        return [{"doc_id": "rv-0001#c0", "text": "조용해요", "model_id": "VC-M1"}]
+    def fake_retrieve(queries, model_ids):
+        seen.update(queries=queries, model_ids=model_ids)
+        return [{"doc_id": "rv-0001#c0", "text": "조용해요", "model_id": "VC-M1", "source": "sample"}]
 
-    monkeypatch.setattr(retriever, "retrieve", fake_retrieve, raising=False)
-    out = retrieve_reviews.invoke({"queries": ["소음"], "model_ids": ["VC-M1"], "top_k": 3})
+    monkeypatch.setattr(retriever, "retrieve", fake_retrieve)
+    out = retrieve_reviews.invoke({"queries": ["소음"], "model_ids": ["VC-M1"]})
     assert out["status"] == "ok" and out["chunks"][0]["doc_id"] == "rv-0001#c0"
-    assert seen == {"queries": ["소음"], "model_ids": ["VC-M1"], "top_k": 3}
+    assert seen == {"queries": ["소음"], "model_ids": ["VC-M1"]}
+    assert out["blog_references"] == []  # 블로그 색인이 없으면 비어 있음
+
+
+def test_retrieve_reviews_has_no_top_k_input():
+    # k는 설정값으로 고정 (1·2차 평가 공정 비교)
+    assert "top_k" not in retrieve_reviews.args_schema.model_fields
 
 
 # ─────────────────────────────── query_price_db ───────────────────────────────

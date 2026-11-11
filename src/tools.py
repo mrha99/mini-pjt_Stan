@@ -6,7 +6,7 @@
 | ------------------ | ------------------------------------------------------------------ |
 | search_products    | 키워드, 가격 범위 → 상품·가격·판매처 목록 (product_id·model_id·할인) |
 | fetch_reviews      | 상품명 목록(+조건어) → 리뷰 원문 (sample: 모델 단위 / blog: 참고 후기) |
-| retrieve_reviews   | 확장 쿼리 목록(+model_ids) → 리랭킹된 리뷰 청크 Top k (4단계 연결)   |
+| retrieve_reviews   | 확장 쿼리 목록(+model_ids) → 리랭킹된 리뷰 청크 Top k (retriever.py)  |
 | query_price_db     | 상품 ID 목록 → 30일 가격 이력 (SQLite)                              |
 | calc_real_price    | 판매처별 상품 목록 + 보유 카드·멤버십 → 상품별 실결제가 (순수 함수)  |
 
@@ -36,6 +36,8 @@ import httpx
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
+
+from src.guardrails import mask_pii
 
 ROOT = Path(__file__).resolve().parent.parent
 PRODUCTS_PATH = ROOT / "data" / "products.json"
@@ -165,19 +167,7 @@ CREATE TABLE IF NOT EXISTS api_cache (
 );
 """
 
-_PII_PATTERNS = [
-    (re.compile(r"\b01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}\b"), "[전화번호]"),
-    (re.compile(r"\b0\d{1,2}[-.\s]\d{3,4}[-.\s]\d{4}\b"), "[전화번호]"),
-    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"), "[이메일]"),
-    (re.compile(r"\b\d{2,6}-\d{2,6}-\d{2,8}\b"), "[계좌번호]"),
-]
-
-
-def _mask_pii(text: str) -> str:
-    """캐시·출력에 남기기 전 최소한의 PII 마스킹 (상세 규칙은 guardrails.py가 담당)."""
-    for pattern, repl in _PII_PATTERNS:
-        text = pattern.sub(repl, text)
-    return text
+_mask_pii = mask_pii  # 캐시·출력에 남기기 전 PII 마스킹 (규칙은 guardrails.py)
 
 
 def _cache_key(source: str, request: dict) -> str:
@@ -304,7 +294,7 @@ class FetchReviewsOutput(BaseModel):
     model_ids: list[str] = Field(default_factory=list, description="sample: 리뷰를 모은 모델")
     not_found: list[str] = Field(default_factory=list, description="카탈로그에서 못 찾은 상품명")
     no_review_models: list[str] = Field(default_factory=list, description="리뷰가 하나도 없는 모델")
-    indexed: int = Field(default=0, description="벡터 DB에 색인한 리뷰 수")
+    indexed: int = Field(default=0, description="벡터 DB 색인에 들어 있는 리뷰 수 (새로 추가 + 기존)")
     from_cache: bool = False
     cached_at: str | None = None
     notice: str = ""
@@ -316,15 +306,10 @@ def _review_source() -> str:
 
 
 def _index_reviews(reviews: list[Review]) -> int:
-    """벡터 DB 색인 자리. 4단계 indexer.py 구현 후 연결한다 (지금은 색인하지 않음)."""
-    try:
-        from src import indexer
-    except ImportError:
-        return 0
-    fn = getattr(indexer, "index_reviews", None)
-    if fn is None:
-        return 0
-    return int(fn([r.model_dump(mode="json") for r in reviews]))
+    """indexer.index_reviews로 벡터 DB·BM25에 추가한다 (기존 ID는 건너뜀, blog는 마스킹 후 저장)."""
+    from src import indexer
+
+    return int(indexer.index_reviews([r.model_dump(mode="json") for r in reviews]))
 
 
 def _fetch_sample(product_names: list[str]) -> FetchReviewsOutput:
@@ -490,7 +475,7 @@ class RetrieveReviewsInput(BaseModel):
     queries: list[str] = Field(min_length=1, description="조건어로 확장한 검색 쿼리 목록")
     model_ids: list[str] | None = Field(default=None,
                                         description="선택: 후보 model_id 목록. 있으면 이 모델 리뷰만 검색")
-    top_k: int = Field(default=8, ge=1, le=20)
+    # 반환 청크 수 k는 입력으로 받지 않고 설정값 RETRIEVER_TOP_K(기본 8)로 고정한다 (1·2차 평가 공정 비교).
 
 
 class ReviewChunk(BaseModel):
@@ -499,38 +484,50 @@ class ReviewChunk(BaseModel):
     review_id: str | None = None
     model_id: str | None = None
     product_id: str | None = None
+    mall: str | None = None
+    category: str | None = None
     score: float | None = None
     source: str | None = None
+    title: str | None = None
     link: str | None = None
 
 
 class RetrieveReviewsOutput(BaseModel):
-    chunks: list[ReviewChunk]
+    chunks: list[ReviewChunk] = Field(description="답변 근거 청크 (API contexts로 사용)")
     count: int
-    status: Literal["ok", "not_ready"] = "ok"
+    blog_references: list[ReviewChunk] = Field(
+        default_factory=list, description="'실제 블로그 참고 후기' (근거 아님, 카드 아래 별도 표시)")
+    status: Literal["ok", "empty_index", "error"] = "ok"
     notice: str = ""
 
 
-def retrieve_reviews_impl(queries: list[str], model_ids: list[str] | None = None,
-                          top_k: int = 8) -> RetrieveReviewsOutput:
-    """4단계 retriever.retrieve(queries, model_ids, top_k) -> list[dict] 를 호출하는 자리."""
+def retrieve_reviews_impl(queries: list[str],
+                          model_ids: list[str] | None = None) -> RetrieveReviewsOutput:
+    """retriever.retrieve(현재 RETRIEVER_MODE) + retrieve_blog_refs를 호출한다."""
+    from src import indexer, retriever
+
     try:
-        from src import retriever
-    except ImportError:
-        retriever = None
-    fn = getattr(retriever, "retrieve", None) if retriever else None
-    if fn is None:
-        return RetrieveReviewsOutput(chunks=[], count=0, status="not_ready",
-                                     notice="리뷰 검색기가 아직 준비되지 않았습니다 (4단계에서 연결).")
-    chunks = [ReviewChunk.model_validate(c) for c in fn(queries, model_ids, top_k)]
-    return RetrieveReviewsOutput(chunks=chunks, count=len(chunks))
+        if indexer.get_collection().count() == 0:
+            return RetrieveReviewsOutput(chunks=[], count=0, status="empty_index",
+                                         notice="리뷰 색인이 비어 있습니다 (python -m src.indexer로 색인).")
+        chunks = [ReviewChunk.model_validate(c) for c in retriever.retrieve(queries, model_ids)]
+        refs = [ReviewChunk.model_validate(c) for c in retriever.retrieve_blog_refs(queries, model_ids)]
+    except Exception as exc:  # noqa: BLE001 - 에이전트가 오류를 보고 다음 행동을 고를 수 있게
+        return RetrieveReviewsOutput(chunks=[], count=0, status="error",
+                                     notice=f"리뷰 검색 실패: {type(exc).__name__}")
+    notice = "" if chunks else "조건에 맞는 리뷰 근거를 찾지 못했습니다 (근거 없음 → '확인 불가')."
+    if refs:
+        notice = (notice + f" {BLOG_LABEL} {len(refs)}건은 특정 상품의 근거가 아닙니다.").strip()
+    return RetrieveReviewsOutput(chunks=chunks, count=len(chunks), blog_references=refs, notice=notice)
 
 
 @tool("retrieve_reviews", args_schema=RetrieveReviewsInput)
-def retrieve_reviews(queries: list[str], model_ids: list[str] | None = None, top_k: int = 8) -> dict:
-    """확장 쿼리 목록으로 색인된 리뷰를 하이브리드 검색·리랭킹해 상위 청크를 돌려준다.
-    추천 요청에서는 search_products가 찾은 후보 model_ids를 넘겨 검색 범위를 제한한다."""
-    return retrieve_reviews_impl(queries, model_ids, top_k).model_dump(mode="json")
+def retrieve_reviews(queries: list[str], model_ids: list[str] | None = None) -> dict:
+    """확장 쿼리 목록으로 색인된 리뷰를 검색해 상위 청크 8개를 돌려준다.
+    queries[0]에는 사용자 질의(핵심어+조건), 나머지에는 조건어(예: '원룸', '소음')를 넣는다.
+    추천 요청에서는 search_products가 찾은 후보 model_ids를 넘겨 검색 범위를 제한한다.
+    blog_references는 '실제 블로그 참고 후기'로 답변 근거로 쓰지 않는다."""
+    return retrieve_reviews_impl(queries, model_ids).model_dump(mode="json")
 
 
 # ─────────────────────────────── 4. query_price_db ───────────────────────────────

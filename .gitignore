@@ -5,5 +5,4 @@ __pycache__/
 .pytest_cache/
 data/chroma/
 .vscode/
-DEV_PROMPTS.md
 *.pdf
