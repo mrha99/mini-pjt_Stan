@@ -338,3 +338,17 @@ def test_finalize_replaces_contradictory_summary(reviews):
     a = chains.finalize_analysis(raw, "M1", rules, [_chunk("rv-a#c0", "M1")])
     assert a.summary == "조용함"
     assert [r.text for r in a.reasons] == ["조용"]          # 실구매 청크 근거 없는 추천 근거 제거
+
+
+def test_daily_quota_is_not_retried():
+    n = {"calls": 0}
+
+    def daily(_):
+        n["calls"] += 1
+        raise ClientError({"Error": {"Code": "ThrottlingException",
+                                     "Message": "Too many tokens per day, please wait before trying again."}}, "Converse")
+
+    with pytest.raises(ClientError):
+        chains._guarded(RunnableLambda(daily), "t").invoke({})
+    assert n["calls"] == 1                                       # 일일 한도는 재시도해도 풀리지 않는다
+    assert chains.is_retryable(_client_error("ThrottlingException"))  # 분 단위 한도는 그대로 재시도

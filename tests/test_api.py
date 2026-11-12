@@ -141,3 +141,17 @@ def test_openapi_schema_matches_contract():
     assert set(s["QueryResponse"]["properties"]) == CONTRACT_KEYS
     assert set(s["Context"]["properties"]) == {"doc_id", "text"}
     assert set(s["TraceStep"]["properties"]) == {"step", "input", "output"}
+
+
+@pytest.mark.anyio
+async def test_query_daily_quota_returns_503_without_retry(client, monkeypatch):
+    from botocore.exceptions import ClientError
+
+    def daily(_q):
+        raise ClientError({"Error": {"Code": "ThrottlingException",
+                                     "Message": "Too many tokens per day, please wait before trying again."}}, "Converse")
+    monkeypatch.setattr(agent, "run", daily)
+    r = await client.post("/query", json={"question": "청소기 추천"})
+    assert r.status_code == 503 and r.headers["retry-after"] == "3600"
+    _assert_contract(r.json())
+    assert "호출량" in r.json()["answer"] and "일일 토큰 한도" in r.json()["trace"][0]["output"]

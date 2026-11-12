@@ -232,11 +232,21 @@ _RETRYABLE_NAMES = ("Throttl", "TooManyRequests", "ServiceUnavailable", "ReadTim
                     "ConnectTimeout", "EndpointConnectionError", "ConnectionClosedError")
 
 
+_DAILY_QUOTA = re.compile(r"per\s*day|daily", re.IGNORECASE)
+
+
+def is_daily_quota(exc: BaseException) -> bool:
+    """Bedrock 일일 토큰 한도("Too many tokens per day"). 분 단위로 풀리지 않으므로 재시도하지 않는다."""
+    return "Throttl" in f"{type(exc).__name__} {exc}" and bool(_DAILY_QUOTA.search(str(exc)))
+
+
 def is_retryable(exc: BaseException) -> bool:
     """Bedrock 일시 오류·네트워크 오류·빈 구조화 출력이면 재시도한다.
-    ValidationException·AccessDeniedException 같은 요청 오류는 재시도하지 않는다."""
+    ValidationException·AccessDeniedException 같은 요청 오류와 일일 토큰 한도는 재시도하지 않는다."""
     if isinstance(exc, EmptyStructuredOutput):
         return True
+    if is_daily_quota(exc):
+        return False
     code = getattr(exc, "response", {}).get("Error", {}).get("Code") if hasattr(exc, "response") else None
     if code:
         return code in _RETRYABLE_CODES

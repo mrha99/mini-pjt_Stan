@@ -91,13 +91,19 @@ def health() -> HealthResponse:
 
 
 def _error_response(exc: Exception) -> JSONResponse:
-    transient = chains.is_retryable(exc)
-    answer = ("요청이 많아 지금은 답변을 만들지 못했습니다. 30초쯤 뒤에 다시 시도해 주세요." if transient
-              else "일시적인 오류로 답변을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.")
+    """오류도 규약 형태로. 일일 토큰 한도 → 503(Retry-After 1시간), 분 단위 호출 한도·일시 오류 → 503(30초), 그 밖 → 500."""
+    name = type(exc).__name__
+    if chains.is_daily_quota(exc):
+        status, retry, answer, why = 503, "3600", ("오늘 사용할 수 있는 AI 호출량을 모두 써서 지금은 답변을 만들 수 없습니다. "
+                                                   "한도가 초기화된 뒤 다시 시도해 주세요."), f"{name} (일일 토큰 한도)"
+    elif chains.is_retryable(exc):
+        status, retry, answer, why = 503, "30", "요청이 많아 지금은 답변을 만들지 못했습니다. 30초쯤 뒤에 다시 시도해 주세요.", name
+    else:
+        status, retry, answer, why = 500, None, "일시적인 오류로 답변을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.", name
     body = QueryResponse(answer=answer, contexts=[],
-                         trace=[TraceStep(step="answer", input="에이전트 실행", output=f"오류: {type(exc).__name__}")])
-    return JSONResponse(status_code=503 if transient else 500, content=body.model_dump(),
-                        headers={"Retry-After": "30"} if transient else None)
+                         trace=[TraceStep(step="answer", input="에이전트 실행", output=f"오류: {why}")])
+    return JSONResponse(status_code=status, content=body.model_dump(),
+                        headers={"Retry-After": retry} if retry else None)
 
 
 @app.post("/query", response_model=QueryResponse,
