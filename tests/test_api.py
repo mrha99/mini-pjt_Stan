@@ -155,3 +155,15 @@ async def test_query_daily_quota_returns_503_without_retry(client, monkeypatch):
     assert r.status_code == 503 and r.headers["retry-after"] == "3600"
     _assert_contract(r.json())
     assert "호출량" in r.json()["answer"] and "일일 토큰 한도" in r.json()["trace"][0]["output"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method,path,payload", [("get", "/health", None),
+                                                  ("post", "/query", {"question": "대신 주문하고 결제해줘"}),
+                                                  ("post", "/query", {"q": "x"}),
+                                                  ("get", "/no-such-path", None)])
+async def test_responses_declare_utf8_charset(client, method, path, payload):
+    """PowerShell 5.1 Invoke-RestMethod가 한글을 깨뜨리지 않도록 모든 JSON 응답에 charset=utf-8."""
+    r = await (client.get(path) if method == "get" else client.post(path, json=payload))
+    assert r.headers["content-type"].replace(" ", "").lower().startswith("application/json")
+    assert "charset=utf-8" in r.headers["content-type"].replace(" ", "").lower()

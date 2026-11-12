@@ -25,7 +25,10 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -81,8 +84,26 @@ async def lifespan(_: FastAPI):
     yield
 
 
+class UTF8JSONResponse(JSONResponse):
+    """charset을 명시한 JSON 응답. Windows PowerShell 5.1의 Invoke-RestMethod는 charset이 없으면
+    본문을 ISO-8859-1로 읽어 한글이 깨진다 (README의 PowerShell 예시)."""
+
+    media_type = "application/json; charset=utf-8"
+
+
 app = FastAPI(title="진짜후기 쇼핑 비교 에이전트", version="1.0.0", lifespan=lifespan,
+              default_response_class=UTF8JSONResponse,
               description="협찬 리뷰를 걸러낸 실구매 후기와 실결제가로 Top 3를 추천한다 (가격·판매처는 샘플 데이터).")
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(_: Request, exc: RequestValidationError) -> UTF8JSONResponse:
+    return UTF8JSONResponse(status_code=422, content={"detail": jsonable_encoder(exc.errors())})
+
+
+@app.exception_handler(StarletteHTTPException)  # FastAPI HTTPException과 404 등 프레임워크 오류 모두
+async def _http_error(_: Request, exc: StarletteHTTPException) -> UTF8JSONResponse:
+    return UTF8JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -90,7 +111,7 @@ def health() -> HealthResponse:
     return HealthResponse(status="ok")
 
 
-def _error_response(exc: Exception) -> JSONResponse:
+def _error_response(exc: Exception) -> UTF8JSONResponse:
     """오류도 규약 형태로. 일일 토큰 한도 → 503(Retry-After 1시간), 분 단위 호출 한도·일시 오류 → 503(30초), 그 밖 → 500."""
     name = type(exc).__name__
     if chains.is_daily_quota(exc):
@@ -102,14 +123,14 @@ def _error_response(exc: Exception) -> JSONResponse:
         status, retry, answer, why = 500, None, "일시적인 오류로 답변을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.", name
     body = QueryResponse(answer=answer, contexts=[],
                          trace=[TraceStep(step="answer", input="에이전트 실행", output=f"오류: {why}")])
-    return JSONResponse(status_code=status, content=body.model_dump(),
+    return UTF8JSONResponse(status_code=status, content=body.model_dump(),
                         headers={"Retry-After": retry} if retry else None)
 
 
 @app.post("/query", response_model=QueryResponse,
           responses={503: {"model": QueryResponse, "description": "LLM 호출 한도 등 일시 오류"},
                      500: {"model": QueryResponse, "description": "내부 오류"}})
-def query(req: QueryRequest) -> QueryResponse | JSONResponse:
+def query(req: QueryRequest) -> QueryResponse | UTF8JSONResponse:
     """질문 1건 처리 (무상태). 동기 함수라 FastAPI 스레드풀에서 실행된다."""
     if not req.question.strip():
         raise HTTPException(status_code=422, detail="question이 비어 있습니다.")

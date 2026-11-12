@@ -84,6 +84,12 @@ docker run --env-file .env -p 8000:8000 -p 8501:8501 \
   -v "$(pwd)/data:/app/data" mini-pjt-shopping   # Chroma 인덱스·SQLite를 호스트에 보존 (이미지 WORKDIR은 /app)
 ```
 
+Windows Git Bash에서는 경로 자동 변환 때문에 위 명령의 볼륨이 `/app/data`에 붙지 않는다(컨테이너가 데이터를 새로 만들고 호스트에 남지 않음). 경로 변환을 끄고 Windows 경로를 넘긴다.
+```bash
+MSYS_NO_PATHCONV=1 docker run --env-file .env -p 8000:8000 -p 8501:8501 \
+  -v "$(pwd -W)/data:/app/data" mini-pjt-shopping
+```
+
 Windows PowerShell에서는 볼륨 경로를 `${PWD}`로 쓴다.
 ```powershell
 docker build -t mini-pjt-shopping .
@@ -99,8 +105,16 @@ docker run --env-file .env -p 8000:8000 -p 8501:8501 `
 
 ### 2-B. 로컬에서 실행
 ```bash
+python3.14 -m venv .venv && source .venv/bin/activate
 pip install --no-deps -r requirements.txt   # 전체 의존성 고정 목록 (사유는 requirements.txt 상단 주석)
 bash run.sh        # 가격 DB·리뷰 인덱싱(없을 때만) → FastAPI(8000) → Streamlit(8501) 순서로 실행
+```
+
+Windows PowerShell (run.sh는 Git for Windows의 bash로 실행한다):
+```powershell
+py -3.14 -m venv .venv
+.venv\Scripts\python -m pip install --no-deps -r requirements.txt
+$env:PYTHON = ".venv/Scripts/python"; bash run.sh
 ```
 
 Windows(Git Bash)에서는 가상환경의 Python을 지정해 실행한다: `PYTHON=.venv/Scripts/python bash run.sh`
@@ -113,6 +127,12 @@ Windows에서 새 가상환경을 프로젝트 폴더 밖의 깊은 경로에 �
 curl -X POST http://localhost:8000/query \
   -H "Content-Type: application/json" \
   -d '{"question": "원룸에서 쓸 35만원 이하 무선청소기 추천해줘. 소음이 제일 중요해"}'
+```
+Windows PowerShell (한글이 깨지지 않게 본문을 UTF-8 바이트로 보낸다):
+```powershell
+$body = @{ question = "원룸에서 쓸 35만원 이하 무선청소기 추천해줘. 소음이 제일 중요해" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/query -ContentType "application/json; charset=utf-8" `
+  -Body ([Text.Encoding]::UTF8.GetBytes($body))
 ```
 - 응답 형식:
 ```json
