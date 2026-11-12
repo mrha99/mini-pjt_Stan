@@ -82,6 +82,7 @@ class AgentState(TypedDict, total=False):
     answer: str
     blocked: bool                    # 입력 가드레일 차단 여부
     answer_source: str               # code(도구 결과 렌더링) / llm(에이전트 서술) / guardrail(거절 안내)
+    auto_retrieved: bool             # retrieve_reviews를 코드가 보충 호출했는지 (A1)
 
 
 class AgentResult(BaseModel):
@@ -136,9 +137,11 @@ SYSTEM_PROMPT = """너는 국내 쇼핑 비교 에이전트다. 도구로 상품
 
 1. 질문에서 카테고리(또는 상품명), 예산(최대 가격), 용도·조건, 보유 카드·멤버십을 파악한다.
 2. 상품 추천 요청인데 예산이나 용도(사용 환경)가 빠졌거나 "적당한 가격"처럼 모호하면 도구를 부르지 말고
-   필요한 것만 1~2개 짧게 되묻는다. 특정 상품의 가격·후기·스펙 질문은 되묻지 않는다.
-3. 첫 턴: search_products(keyword=카테고리명 또는 상품명, max_price=예산). 카탈로그에 없는 카테고리는
-   비슷한 다른 카테고리로 바꿔 검색하지 않는다. 상품 두 개를 비교하면 상품마다 한 번씩 검색한다.
+   필요한 것만 1~2개 짧게 되묻는다. 이미 파악한 조건(예: 원룸, 반려동물)은 되묻는 문장에 함께 언급해 확인한다.
+   특정 상품의 가격·후기·스펙 질문은 되묻지 않는다.
+3. 첫 턴: search_products(keyword=카테고리명 또는 상품명, max_price=예산). 상품을 묻는 질문이면 카탈로그에
+   없어 보이는 카테고리라도 반드시 한 번 검색해 결과로 확인한다(검색 없이 "없다"고 답하지 않는다).
+   카탈로그에 없는 카테고리는 비슷한 다른 카테고리로 바꿔 검색하지 않는다. 상품 두 개를 비교하면 상품마다 한 번씩 검색한다.
 4. 추천 요청에서 모델이 3개 미만이면 검색어를 바꿔(브랜드·수식어 빼기 등) 재검색할 수 있다(최대 2회).
    예산 상한은 올리지 않는다. 그래도 부족하면 찾은 모델로 진행한다.
 5. 다음 턴에 필요한 도구를 한 번에 호출한다 (여러 도구를 같은 턴에 요청하면 요청 순서대로 실행된다):
@@ -311,6 +314,25 @@ def tools_node(state: AgentState) -> dict:
                     extra[k] = v
             trace.append({"step": name, "input": _short(_args_summary(name, args)), "output": _short(output)})
         messages.append(ToolMessage(content=mask_pii(content), tool_call_id=call["id"], name=name))
+
+    # A1(1차 평가): 리뷰를 모으고(fetch_reviews) 검색(retrieve_reviews)을 빠뜨리면 리뷰 근거 없는 추천이 된다.
+    # 같은 라운드에 fetch_reviews가 있고 아직 검색하지 않았으면 코드가 후보 모델로 한 번 보충 호출한다.
+    ran = {c["name"] for c in last.tool_calls}
+    if ("fetch_reviews" in ran and "retrieve_reviews" not in ran and not state.get("retrieved")
+            and not extra.get("retrieved") and st["tool_calls"] < MAX_TOOL_CALLS):
+        q = state["question"]
+        args = {"queries": [q] + retriever.extract_conditions([q])}
+        st["tool_calls"] += 1
+        t = time.perf_counter()
+        try:
+            _, output, upd = _run_tool("retrieve_reviews", args, st)
+        except Exception as exc:  # noqa: BLE001
+            output, upd = f"오류 {type(exc).__name__}", {}
+        timings.append(("tool:retrieve_reviews(자동 보충)", time.perf_counter() - t))
+        extra.update({k: v for k, v in upd.items() if k not in st})
+        extra["auto_retrieved"] = True
+        trace.append({"step": "retrieve_reviews", "input": _short(_args_summary("retrieve_reviews", args) + " (자동 보충)"),
+                      "output": _short(output)})
     return {"messages": messages, "trace": trace, "timings": timings, **st, **extra}
 
 
@@ -361,6 +383,11 @@ def answer_node(state: AgentState) -> dict:
     timings: list[tuple[str, float]] = []
     parts: list[str] = []
     contexts: list[dict] = []
+    # A6: 질문에 판매처를 지정했는데 그 판매처 리뷰가 근거에 없으면 모델 단위 근거임을 밝힌다
+    malls = sorted({p["mall"] for p in tools.get_product_source()._products() if p["mall"] in q})
+    if malls and chunks and not any(c.get("mall") in malls for c in chunks):
+        notices.append(f"질문하신 {', '.join(malls)} 판매분에 등록된 실구매 리뷰는 없어, "
+                       f"같은 모델의 다른 판매처 리뷰로 정리했습니다.")
 
     def timed(label, fn, *a, **k):
         t = time.perf_counter()
@@ -387,6 +414,10 @@ def answer_node(state: AgentState) -> dict:
         ids = state.get("review_model_ids") or model_ids or list(dict.fromkeys(c["model_id"] for c in chunks))
         analyses = timed("answer:review_analysis", chains.analyze_models, q, chunks, ids, conditions)
         parts.append(chains.render_review_summary(analyses, chunks, notices))
+        if products:  # A4: 리뷰가 없어도 검색된 상품의 판매처·가격은 함께 안내
+            prices = chains.render_catalog_prices(list(products.values()), ids)
+            if prices:
+                parts.append(prices)
         contexts = chunks
         summary = (f"모델 {len(ids)}개 + 리뷰 청크 {len(chunks)}개",
                    f"실구매 후기 요약 {len(analyses)}개 모델" + _analysis_failures(analyses))
@@ -481,7 +512,7 @@ def _after_tools(state: AgentState) -> str:
         if not isinstance(m, ToolMessage):
             break
         last_round.add(m.name)
-    if last_round & FINAL_TOOLS:
+    if last_round & FINAL_TOOLS or state.get("auto_retrieved"):  # 자동 보충 검색(A1)도 마지막 단계로 본다
         return "answer"
     return "agent"
 

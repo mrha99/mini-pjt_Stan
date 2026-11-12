@@ -153,3 +153,38 @@ def test_llm_text_answer_unverified_amount_replaced(llm, built):
     assert "399,000원" not in r.answer and "[확인 불가]" in r.answer and "459,000원" in r.answer
     assert "정책 1" in r.answer                                   # 가격 추정 요청 안내
     assert "근거 없는 금액 1건" in r.trace[-1]["output"]
+
+
+def test_auto_retrieve_when_fetch_without_retrieve(llm, built):
+    """A1: 에이전트가 fetch_reviews·calc_real_price만 부르고 retrieve_reviews를 빠뜨리면 코드가 보충한다."""
+    fake = llm([
+        AIMessage("", tool_calls=[_call("search_products", {"keyword": "무선청소기", "max_price": 350000}, 1)]),
+        AIMessage("", tool_calls=[
+            _call("fetch_reviews", {"product_names": ["클린웨이브 V7 사일런트 무선청소기"]}, 2),
+            _call("calc_real_price", {}, 3),
+        ]),
+    ])
+    r = agent.run(QUESTION)
+    steps = [s["step"] for s in r.trace]
+    assert steps == ["guardrail_input", "search_products", "fetch_reviews", "calc_real_price", "retrieve_reviews",
+                     "answer", "guardrail_output"]
+    assert "(자동 보충)" in r.trace[4]["input"] and "model_ids ['VC-M" in r.trace[4]["input"]
+    assert r.contexts and fake.agent_calls == 2
+
+
+def test_review_summary_adds_catalog_prices_and_mall_notice(llm, built):
+    """A4·A6: 후기 요약에도 판매처 가격을 붙이고, 질문한 판매처 리뷰가 근거에 없으면 안내한다."""
+    llm([
+        AIMessage("", tool_calls=[_call("search_products", {"keyword": "포근 키즈 35 공기청정기"}, 1)]),
+        AIMessage("", tool_calls=[_call("fetch_reviews", {"product_names": ["포근 키즈 35 공기청정기"]}, 2),
+                                  _call("retrieve_reviews", {"queries": ["키즈 35 후기"]}, 3)]),
+    ])
+    r = agent.run("포근 키즈 35 공기청정기 잘 때 조용한지 후기 알려줘")
+    assert "판매처별 가격 [샘플 데이터]" in r.answer and "판매가" in r.answer
+    llm([
+        AIMessage("", tool_calls=[_call("search_products", {"keyword": "클린웨이브 V7 사일런트"}, 1)]),
+        AIMessage("", tool_calls=[_call("fetch_reviews", {"product_names": ["클린웨이브 V7 사일런트 무선청소기"]}, 2),
+                                  _call("retrieve_reviews", {"queries": ["V7 후기"], "model_ids": ["VC-M1"]}, 3)]),
+    ])
+    r = agent.run("모아딜에서 파는 클린웨이브 V7 사일런트 무선청소기 후기 있어?")
+    assert "모아딜 판매분에 등록된 실구매 리뷰는 없어" in r.answer

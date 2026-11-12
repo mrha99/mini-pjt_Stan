@@ -305,3 +305,12 @@ def test_quota_select_priority():
     ordered = ["a1", "a2", "a3", "b1", "b2"]
     # 할당은 우선순위(0 먼저), 같은 우선순위 안에서는 점수 순 / 나머지 자리는 점수 순
     assert retriever._quota_select(ordered, model, ["A", "B"], 1, 3, pri) == ["a3", "b2", "a1"]
+
+
+def test_sponsored_only_model_links(built):
+    """A5: 협찬 리뷰만 있는 상품(HM-008)은 협찬 링크를 '근거 제외'로 보여줄 수 있어야 한다."""
+    from src import chains
+
+    mid = indexer.catalog()["HM-008"]["model_id"]
+    assert chains.model_review_links(mid, "협찬")
+    assert chains.model_review_links(mid, "실구매") == []

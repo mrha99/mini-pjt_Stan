@@ -113,13 +113,15 @@ class ReviewAnalysis(BaseModel):
                                            description="비추천 대상 (예: '손목이 약한 사람')")
     evidence_chunk_ids: list[str] = Field(default_factory=list, description="분석에 쓴 근거 청크 ID")
     summary: str = Field(default="", description="사용자 조건 기준 한 줄 요약 (카드 요약으로 쓴다)")
+    reasons: list[ReasonItem] = Field(default_factory=list,
+                                      description="사용자 조건 기준 추천 근거 2개 (카드 추천 근거로 쓴다)")
+    unverified_conditions: list[str] = Field(
+        default_factory=list, description="사용자 조건 중 실구매 리뷰에 근거가 없는 조건어 (예: '소음'). '확인 불가'로 표시")
     _error: str | None = PrivateAttr(default=None)  # LLM 분석 실패 사유 (스키마·출력에는 없음, trace·로그용)
 
     @property
     def error(self) -> str | None:
         return self._error
-    reasons: list[ReasonItem] = Field(default_factory=list,
-                                      description="사용자 조건 기준 추천 근거 2개 (카드 추천 근거로 쓴다)")
 
     def count(self, label: str) -> int:
         return sum(1 for v in self.verdicts if v.label == label)
@@ -174,6 +176,7 @@ class RecommendationCard(BaseModel):
     pros: list[ConditionPoint] = Field(default_factory=list)
     cons: list[ConditionPoint] = Field(default_factory=list)
     not_recommended_for: list[str] = Field(default_factory=list)
+    unverified_conditions: list[str] = Field(default_factory=list, description="실구매 리뷰 근거가 없는 사용자 조건")
     sources: list[SourceLink] = Field(default_factory=list, description="출처 링크 (실구매 리뷰)")
     sponsorship: SponsorshipSummary
     has_evidence: bool = Field(default=True, description="실구매 후기 근거(장단점) 유무. 없으면 가격 기준으로만 포함")
@@ -279,10 +282,36 @@ def _guarded(chain: Runnable, name: str) -> Runnable:
     return RunnableLambda(_call, name=name)
 
 
+def best_structured(llm: Any, schema: type[BaseModel]) -> Runnable:
+    """llm.with_structured_output(schema)인데, 모델이 한 응답에 스키마 도구 호출을 여러 번 내면(초안 + 완성본)
+    검증을 통과한 것 중 가장 내용이 많은 것을 고른다. LangChain 기본 파서는 첫 번째 호출만 써서
+    1차 평가 #1에서 초안(리뷰 1건 판별, 장단점 없음)이 채택됐다(A2)."""
+    from pydantic import ValidationError
+
+    def pick(out: Any) -> Any:
+        if not isinstance(out, dict) or "raw" not in out:  # include_raw를 지원하지 않는 테스트용 가짜 LLM
+            return out
+        candidates = []
+        for call in getattr(out.get("raw"), "tool_calls", None) or []:
+            try:
+                candidates.append(schema.model_validate(call.get("args") or {}))
+            except ValidationError:
+                continue
+        if candidates:
+            return max(candidates, key=lambda m: len(m.model_dump_json()))
+        return out.get("parsed")
+
+    try:
+        bound = llm.with_structured_output(schema, include_raw=True)
+    except TypeError:
+        bound = llm.with_structured_output(schema)
+    return bound | RunnableLambda(pick, name="pick_complete_tool_call")
+
+
 def _structured(prompt: ChatPromptTemplate, schema: type[BaseModel], name: str,
                 max_tokens: int) -> Runnable:
-    """prompt | llm.with_structured_output(schema), 재시도·동시성 제한 포함."""
-    return _guarded(prompt | get_llm(max_tokens).with_structured_output(schema), name)
+    """prompt | llm.with_structured_output(schema) (가장 완전한 도구 호출 선택), 재시도·동시성 제한 포함."""
+    return _guarded(prompt | best_structured(get_llm(max_tokens), schema), name)
 
 
 # ─────────────────────────────── 데이터 헬퍼 ───────────────────────────────
@@ -462,7 +491,10 @@ _ANALYSIS_SYSTEM = """너는 쇼핑 리뷰 분석가다. 한 모델의 리뷰 �
 5. reasons: 사용자 조건 관점에서 이 모델을 고를 이유(또는 조건에 안 맞는 점) 2개, 각 50자 이내.
    항목마다 실구매 청크 ID를 chunk_ids에 단다. 가격·순위는 언급하지 않는다(코드가 붙인다).
 verdicts의 reason은 20자 이내로 쓴다.
-6. evidence_chunk_ids: pros·cons·reasons에 쓴 청크 ID."""
+6. evidence_chunk_ids: pros·cons·reasons에 쓴 청크 ID.
+7. unverified_conditions: 사용자 조건({conditions}) 중 실구매 리뷰 청크에 근거가 없는 조건어를 그대로 적는다
+   (예: 소음 언급이 없으면 '소음'). 근거가 없는 조건은 추측해서 장단점으로 쓰지 않는다.
+결과는 도구를 한 번만 호출해 한 번에 낸다."""
 
 _ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
     ("system", _ANALYSIS_SYSTEM),
@@ -544,6 +576,7 @@ def finalize_analysis(raw: ReviewAnalysis, model_id: str, rules: dict[str, tuple
         evidence_chunk_ids=list(dict.fromkeys(used)),
         summary=summary if has else "실구매 후기 근거 부족",
         reasons=reasons if has else [],
+        unverified_conditions=list(dict.fromkeys(c.strip() for c in raw.unverified_conditions if c.strip())),
     )
 
 
@@ -760,6 +793,7 @@ def build_cards(question: str, products: list[dict], real_prices: list[dict],
             rank=i, model_id=mid, model_name=info.get("name", mid), brand=info.get("brand", ""),
             prices=mall_prices[mid], summary=a.summary, reasons=[], pros=a.pros, cons=a.cons,
             not_recommended_for=a.not_recommended_for, sources=sources[:3], score=scores[mid],
+            unverified_conditions=a.unverified_conditions,
             sponsorship=SponsorshipSummary(organic=a.count("실구매"), sponsored=a.count("협찬"),
                                            unknown=a.count("판별 불가"),
                                            total_reviews=sum(st.values()), disclosed_sponsored=st["협찬"]),
@@ -831,6 +865,8 @@ def render_answer(cards: list[RecommendationCard], category: str = "", notices: 
                                                        for p in card.cons[:2]))
         if card.not_recommended_for:
             lines.append(f"   이런 분께는 비추천: {', '.join(card.not_recommended_for)}")
+        if card.unverified_conditions:
+            lines.append(f"   확인 불가: {', '.join(card.unverified_conditions)} 관련 실구매 후기가 없습니다.")
         sp = card.sponsorship
         analyzed = f"분석한 리뷰: 실구매 {sp.organic}건 · 협찬 {sp.sponsored}건 · 판별 불가 {sp.unknown}건"
         if sp.total_reviews:
@@ -874,6 +910,37 @@ def render_price_answer(cards: list[RecommendationCard], notices: list[str] | No
     return "\n".join(lines)
 
 
+def render_catalog_prices(products: list[dict], model_ids: list[str]) -> str:
+    """후기 요약에 붙이는 카탈로그 판매처별 판매가·배송비 (리뷰가 없어도 상품 정보는 제공, A4)."""
+    by_model: dict[str, list[dict]] = defaultdict(list)
+    for p in products:
+        if not model_ids or p["model_id"] in model_ids:
+            by_model[p["model_id"]].append(p)
+    if not by_model:
+        return ""
+    lines = [f"판매처별 가격 [샘플 데이터] (카드·멤버십 할인 미반영, 싼 순):"]
+    for mid, ps in by_model.items():
+        lines.append(f"■ {ps[0]['name']}")
+        for p in sorted(ps, key=lambda x: x["price"] + x.get("shipping_fee", 0)):
+            lines.append(f"   - {p['mall']}: 판매가 {_won(p['price'])} + 배송비 {_won(p.get('shipping_fee', 0))}"
+                         f" = {_won(p['price'] + p.get('shipping_fee', 0))} · {p['link']}")
+    return "\n".join(lines)
+
+
+def model_review_links(model_id: str, label: str) -> list[tuple[str, str]]:
+    """색인된 리뷰 중 이 모델의 특정 1차 규칙 라벨(협찬 등) 리뷰의 (제목, 링크)."""
+    from src import indexer
+
+    try:
+        labels = indexer.review_sponsor_labels()
+        cat = indexer.catalog()
+        return [(rv.get("title") or rv["review_id"], rv["link"]) for rv in indexer.load_review_files()
+                if (p := cat.get(rv.get("product_id", ""))) and p["model_id"] == model_id
+                and labels.get(rv["review_id"], {}).get("label") == label and rv.get("link")]
+    except Exception:  # noqa: BLE001 - 색인이 없으면 링크 생략
+        return []
+
+
 def render_review_summary(analyses: dict[str, ReviewAnalysis], chunks: list[dict],
                           notices: list[str] | None = None) -> str:
     """특정 상품의 실구매 후기 요약 (가격 비교 없이 리뷰만 묻는 질문)."""
@@ -912,6 +979,10 @@ def render_review_summary(analyses: dict[str, ReviewAnalysis], chunks: list[dict
                      f"실구매 {a.count('실구매')}건 · 협찬 {a.count('협찬')}건 · 판별 불가 {a.count('판별 불가')}건")
         if not (a.pros or a.cons):
             lines.append("   실구매 후기 근거가 없어 장단점을 정리할 수 없습니다 (확인 불가).")
+            sponsored = model_review_links(mid, "협찬")
+            if sponsored:
+                lines.append(f"   협찬 리뷰만 {len(sponsored)}건 있습니다 (협찬·근거 제외, 참고용 링크):")
+                lines += [f"   - [협찬] {t} · {link}" for t, link in sponsored[:3]]
             continue
         lines.append(f"   요약: {a.summary}")
         if a.pros:
@@ -922,6 +993,8 @@ def render_review_summary(analyses: dict[str, ReviewAnalysis], chunks: list[dict
             lines += [f"   - {p.point} {refs(p.chunk_ids)}".rstrip() for p in a.cons]
         if a.not_recommended_for:
             lines.append(f"   이런 분께는 비추천: {', '.join(a.not_recommended_for)}")
+        if a.unverified_conditions:
+            lines.append(f"   확인 불가: {', '.join(a.unverified_conditions)} 관련 실구매 후기가 없습니다.")
     if src_list:
         lines += ["", "출처 (실구매 후기):"]
         lines += [f"[{i}] {t} · {link}" for i, (t, link) in enumerate(src_list, 1)]

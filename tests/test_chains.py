@@ -352,3 +352,57 @@ def test_daily_quota_is_not_retried():
         chains._guarded(RunnableLambda(daily), "t").invoke({})
     assert n["calls"] == 1                                       # 일일 한도는 재시도해도 풀리지 않는다
     assert chains.is_retryable(_client_error("ThrottlingException"))  # 분 단위 한도는 그대로 재시도
+
+
+# ─────────────────────────────── 1차 평가 결함 수정 (A2·A9·A4) ───────────────────────────────
+
+
+def test_best_structured_picks_most_complete_tool_call():
+    """A2: 한 응답에 초안·완성본 두 도구 호출이 오면 완성본을 고른다."""
+    from langchain_core.messages import AIMessage
+
+    draft = {"model_id": "M1", "verdicts": [{"review_id": "rv-a", "label": "협찬", "reason": "x"}]}
+    full = {"model_id": "M1", "verdicts": [{"review_id": "rv-a", "label": "실구매", "reason": "x"},
+                                            {"review_id": "rv-b", "label": "협찬", "reason": "y"}],
+            "pros": [{"condition": "소음", "point": "조용함", "chunk_ids": ["rv-a#c0"]}], "summary": "조용"}
+    raw = AIMessage("", tool_calls=[{"name": "ReviewAnalysis", "args": draft, "id": "1"},
+                                    {"name": "ReviewAnalysis", "args": full, "id": "2"},
+                                    {"name": "ReviewAnalysis", "args": {"broken": True}, "id": "3"}])
+
+    class RawLLM:
+        def with_structured_output(self, schema, include_raw=False):
+            assert include_raw
+            return RunnableLambda(lambda _: {"raw": raw, "parsed": schema.model_validate(draft), "parsing_error": None})
+
+    out = chains.best_structured(RawLLM(), ReviewAnalysis).invoke({})
+    assert len(out.verdicts) == 2 and out.pros[0].point == "조용함"
+
+
+def test_unverified_conditions_rendered(fake_llm, reviews):
+    cards, _ = _cards_fixture(fake_llm, reviews, lambda p: CardTexts(cards=[]))
+    cards[0].unverified_conditions = ["소음"]
+    assert "확인 불가: 소음 관련 실구매 후기가 없습니다." in chains.render_answer(cards)
+    a = ReviewAnalysis(model_id="M1", verdicts=[ReviewVerdict(review_id="rv-a", label="실구매", reason="r")],
+                       pros=[ConditionPoint(condition="일반", point="가벼움", chunk_ids=["rv-a#c0"])],
+                       summary="가벼움", unverified_conditions=["소음"])
+    text = chains.render_review_summary({"M1": a}, [_chunk("rv-a#c0", "M1")])
+    assert "확인 불가: 소음 관련 실구매 후기가 없습니다." in text
+
+
+def test_finalize_keeps_unverified_conditions(reviews):
+    rules = chains._rule_verdicts(["rv-a"], [_chunk("rv-a#c0", "M1")])
+    raw = ReviewAnalysis(model_id="M1", verdicts=[], unverified_conditions=["소음", " 소음 ", ""])
+    a = chains.finalize_analysis(raw, "M1", rules, [_chunk("rv-a#c0", "M1")])
+    assert a.unverified_conditions == ["소음"]
+
+
+def test_render_catalog_prices():
+    products = [{"product_id": "P1", "model_id": "M1", "name": "모델1", "mall": "하늘몰", "price": 100000,
+                 "shipping_fee": 3000, "link": "https://h/P1"},
+                {"product_id": "P2", "model_id": "M1", "name": "모델1", "mall": "바로마켓", "price": 99000,
+                 "shipping_fee": 0, "link": "https://b/P2"},
+                {"product_id": "P3", "model_id": "M2", "name": "모델2", "mall": "모아딜", "price": 1, "shipping_fee": 0,
+                 "link": "https://m/P3"}]
+    text = chains.render_catalog_prices(products, ["M1"])
+    assert "샘플 데이터" in text and "모델2" not in text
+    assert text.index("바로마켓") < text.index("하늘몰")                 # 판매가+배송비 싼 순

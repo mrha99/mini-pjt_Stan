@@ -388,7 +388,7 @@ def _judge_remaining(texts: list[str]) -> list[InjectionJudgment | Exception]:
     judge_id = os.getenv("JUDGE_MODEL_ID")
     llm = chains._bedrock_llm(judge_id, os.getenv("AWS_REGION", "us-east-1"), 300) if judge_id else chains.get_llm(300)
     prompt = ChatPromptTemplate.from_messages([("system", _JUDGE_SYSTEM), ("human", "<text>{t}</text>")])
-    chain = chains._guarded(prompt | llm.with_structured_output(InjectionJudgment), "injection_judge")
+    chain = chains._guarded(prompt | chains.best_structured(llm, InjectionJudgment), "injection_judge")
     out: list[InjectionJudgment | Exception | None] = [None] * len(texts)
     todo = []
     for i, t in enumerate(texts):

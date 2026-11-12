@@ -228,7 +228,7 @@ def _judge_chain():
                   "HTTP 상태: {status}\n처리 과정: {trace}\n\n검색된 리뷰 근거:\n{contexts}\n\n<answer>{answer}</answer>"),
     ])
     llm = chains._bedrock_llm(os.environ["JUDGE_MODEL_ID"], os.environ.get("AWS_REGION", "us-east-1"), 3000)
-    return chains._guarded(prompt | llm.with_structured_output(JudgeResult), "llm_as_judge")
+    return chains._guarded(prompt | chains.best_structured(llm, JudgeResult), "llm_as_judge")
 
 
 def rule_checks(r: dict, resp: dict) -> dict:
