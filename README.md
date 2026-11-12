@@ -158,7 +158,7 @@ python src/evaluate.py --queries evaluation/test_queries.csv --round 1
 - faithfulness: 0.XX (목표 0.85 이상)
 - answer_relevancy: 0.XX (목표 0.80 이상)
 
-측정 방식: positive·edge 19문항 중 RAG를 거친(contexts가 있는) 문항 대상, `retrieve_reviews` 결과를 retrieved_contexts로 사용. 스키마에 정답 컬럼이 없어 context_recall의 reference는 `expected_traits`를 문장으로 이어 붙여 대신함.
+측정 방식: positive·edge 19문항 중 RAG를 거친(contexts가 있는) 문항 대상, `retrieve_reviews` 결과를 retrieved_contexts로 사용(청크 앞에 상품명). 판정은 **리뷰 범위 정의**로 한다: faithfulness는 답변 중 리뷰로 만든 문장만, context_precision·recall의 reference는 `expected_traits` 중 리뷰로 답할 수 있는 항목만 이어 붙여 쓰고, answer_relevancy는 답변 전체를 쓴다. 가격·판매처는 도구 결과라 RAGAS 대신 출력 가드레일 금액 검사와 Judge가 확인한다. 처음 정의(답변 전체·기대 항목 전체)의 수치도 리포트에 함께 싣는다 (변경 이유는 PRD "RAGAS 연결").
 
 1·2차 상세 결과: `evaluation/round1_report.md`, `evaluation/round2_report.md`
 

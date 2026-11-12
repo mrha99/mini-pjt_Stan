@@ -419,7 +419,15 @@ LangSmith 등 API 키는 저장소에 넣지 않고, 필요한 환경 변수 목
 
 **통과 판정:** 한 문항은 `expected_traits`를 모두 충족하고(LLM-as-Judge), `forbidden` 항목이 하나도 나오지 않으며(규칙 + Judge), `expected_tools`가 모두 호출됐을 때(LangSmith trace) 통과로 본다.
 
-**RAGAS 연결:** RAG를 거치는 positive·edge 문항에 대해 `input`을 user_input, API 응답의 answer를 response, `retrieve_reviews` 결과(API 응답의 contexts)를 retrieved_contexts로 쓴다. 스키마에 정답 컬럼이 없으므로 context_recall의 reference는 `expected_traits`를 문장으로 이어 붙여 대신한다.
+**RAGAS 연결:** RAG를 거치는 positive·edge 문항에 대해 `input`을 user_input, `retrieve_reviews` 결과(API 응답의 contexts, 청크 앞에 doc_id로 찾은 상품명을 붙임)를 retrieved_contexts로 쓴다. 목표 달성 판정은 아래 **리뷰 범위 정의**로 하고, 처음 정의(원 정의)의 수치도 리포트에 함께 싣는다. 1·2차 모두 두 정의로 같은 방식으로 채점한다.
+
+| 지표 | 리뷰 범위 정의 (판정 기준) | 원 정의 (참고) |
+| --- | --- | --- |
+| faithfulness | response = 답변 중 리뷰로 만든 문장(카드 요약·추천 근거·장단점·비추천 대상, 가격 줄 제외, 문장 앞에 모델명) | response = answer 전체 |
+| answer_relevancy | response = answer 전체 | 같음 |
+| context_precision·recall | reference = `expected_traits` 중 리뷰로 답할 수 있는 항목(리뷰·후기·장점·단점 포함)을 이어 붙인 문장. 해당 항목이 없는 문항은 제외 | reference = `expected_traits` 전체를 이어 붙인 문장 |
+
+변경 이유(1차 평가 근본 원인 분석): 답변의 판매가·실결제가·판매처·링크는 도구(카탈로그·계산기) 결과인데 retrieved_contexts는 리뷰 청크뿐이라 원 정의의 faithfulness는 이 문장들을 모두 근거 없음으로 센다. 또 reference에 "실결제가 비교·출처 링크" 같은 리뷰로 답할 수 없는 항목이 섞여, 판정 LLM이 관련 리뷰도 "이 답에 이르는 데 쓸모없다"고 본다(1차 #1: 소음 리뷰 8개인데 context_precision 0). 가격·판매처 정확성은 RAGAS 대신 출력 가드레일의 금액 검사와 Judge(평가 메모의 기대값 대조)가 맡는다.
 
 **작성 예시**
 

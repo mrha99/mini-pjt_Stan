@@ -336,15 +336,70 @@ def ragas_eligible(r: dict, it: dict) -> tuple[bool, str]:
     return True, ""
 
 
-def run_ragas(store: Store, rows: list[dict], fresh: bool) -> None:
-    from langchain_core.embeddings import Embeddings
-    from ragas import EvaluationDataset, SingleTurnSample, evaluate
-    from ragas.embeddings import LangchainEmbeddingsWrapper
-    from ragas.llms import LangchainLLMWrapper
-    from ragas.metrics import Faithfulness, LLMContextPrecisionWithReference, LLMContextRecall, ResponseRelevancy
-    from ragas.run_config import RunConfig
+REVIEW_TRAIT = re.compile(r"리뷰|후기|장점|단점")
+_PRICE_TEXT = re.compile(r"실결제가|판매가|배송비|\d[\d,]*원")
+_REFS = re.compile(r"\s*(\[\d+\])+")
 
-    from src import chains, indexer
+
+def review_traits(traits: list[str]) -> list[str]:
+    """expected_traits 중 리뷰로 답할 수 있는 항목 (리뷰 범위 정의의 reference)."""
+    return [t for t in traits if REVIEW_TRAIT.search(t)]
+
+
+def review_response(answer: str) -> str:
+    """답변 중 리뷰로 만든 문장만 (리뷰 범위 정의의 faithfulness response).
+
+    추천 카드(``1) 모델 · ...``)·후기 요약(``■ 모델``) 형식이면 요약·추천 근거·장단점·비추천 대상만 모으고
+    판매처별 가격 줄·실결제가 근거·리뷰 구분 줄은 뺀다. 문장 앞에 모델명을 붙여 어느 상품 얘기인지 남긴다.
+    그 형식이 아닌 에이전트 서술 답변은 전체를 쓴다."""
+    if not re.search(r"^(\d\) |■ )", answer or "", flags=re.M):
+        return answer or ""
+    out: list[str] = []
+
+    def add(model: str, text: str) -> None:
+        text = _REFS.sub("", text).strip(" ;")
+        if text and not _PRICE_TEXT.search(text):
+            out.append(f"{model}: {text}")
+
+    for block in re.split(r"\n(?=\d\) |■ )", answer):
+        m = re.match(r"(?:\d\) |■ )(.+?)(?: · |\n|$)", block)
+        if not m:
+            continue
+        model, in_list = m.group(1).strip(), False
+        for line in block.split("\n")[1:]:
+            s = line.strip()
+            if s.startswith("요약:"):
+                txt = s[3:].strip()
+                if "후기 없음" not in txt and "근거 부족" not in txt:
+                    add(model, txt)
+                in_list = False
+            elif s in ("추천 근거:", "장점:", "단점:"):
+                in_list = True
+            elif s.startswith("단점(실구매 후기):"):
+                for part in s.split(":", 1)[1].split(";"):
+                    add(model, part)
+                in_list = False
+            elif s.startswith("이런 분께는 비추천:"):
+                add(model, "비추천 대상 - " + s.split(":", 1)[1].strip())
+                in_list = False
+            elif s.startswith("- ") and in_list:
+                add(model, s[2:])
+            elif not s.startswith("- "):
+                in_list = False
+    return "\n".join(out)
+
+
+def migrate_ragas(store: Store) -> None:
+    """리뷰 범위 정의 도입 전에 저장된 RAGAS 값(원 정의)을 ragas_orig로 옮긴다."""
+    for it in store.data["items"].values():
+        if "ragas" in it and it.get("ragas_version") != "review":
+            it["ragas_orig"] = it.pop("ragas")
+
+
+def _e5_embeddings():
+    from langchain_core.embeddings import Embeddings
+
+    from src import indexer
 
     class E5Embeddings(Embeddings):
         """4단계 한국어 임베딩(multilingual-e5-base)을 RAGAS에 연결. 질문 간 유사도이므로 query 접두어를 쓴다."""
@@ -358,36 +413,100 @@ def run_ragas(store: Store, rows: list[dict], fresh: bool) -> None:
         def embed_query(self, text):
             return self._m.embed_query(text)
 
+    return E5Embeddings()
+
+
+def _ragas_eval(samples: list, metric_keys: list[str]) -> list[dict]:
+    """RAGAS evaluate 1회. LLM·임베딩은 Bedrock Judge 모델과 한국어 e5를 명시 연결(OpenAI 기본값 사용 안 함)."""
+    from ragas import EvaluationDataset, evaluate
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.metrics import Faithfulness, LLMContextPrecisionWithReference, LLMContextRecall, ResponseRelevancy
+    from ragas.run_config import RunConfig
+
+    from src import chains
+
+    if not samples:
+        return []
+    factory = {"faithfulness": Faithfulness, "answer_relevancy": ResponseRelevancy,
+               "context_precision": LLMContextPrecisionWithReference, "context_recall": LLMContextRecall}
+    os.environ.pop("OPENAI_API_KEY", None)  # 기본 OpenAI로 새지 않게
+    llm = LangchainLLMWrapper(chains._bedrock_llm(os.environ["JUDGE_MODEL_ID"],
+                                                  os.environ.get("AWS_REGION", "us-east-1"), 4096))
+    result = evaluate(EvaluationDataset(samples), metrics=[factory[k]() for k in metric_keys],
+                      llm=llm, embeddings=LangchainEmbeddingsWrapper(_e5_embeddings()),
+                      run_config=RunConfig(max_workers=chains.LLM_MAX_CONCURRENCY, max_retries=6, max_wait=30,
+                                           timeout=300),
+                      show_progress=False, raise_exceptions=False)
+    out = []
+    for _, row in result.to_pandas().iterrows():
+        vals = {}
+        for k in metric_keys:
+            v = row.get(RAGAS_COLS[k])
+            vals[k] = None if v is None or (isinstance(v, float) and math.isnan(v)) else float(v)
+        out.append(vals)
+    return out
+
+
+def run_ragas(store: Store, rows: list[dict], fresh: bool, definition: str = "review") -> None:
+    """definition='review'(판정 기준) → it['ragas'], 'orig'(원 정의, 참고) → it['ragas_orig']."""
+    from ragas import SingleTurnSample
+
+    key = "ragas" if definition == "review" else "ragas_orig"
     names = _doc_product_names()
-    todo, samples = [], []
+    targets = []
     for r in rows:
         it = store.item(r["id"])
         ok, why = ragas_eligible(r, it)
         it["ragas_eligible"], it["ragas_excluded_reason"] = ok, why
-        if not ok or ("ragas" in it and not fresh):
-            continue
-        resp = it["call"]["response"]
-        ctxs = [f"[{names.get(c['doc_id'].split('#')[0], '상품 미상')} 리뷰 · {c['doc_id']}] {c['text']}"
-                for c in resp["contexts"]]
-        todo.append(r["id"])
-        samples.append(SingleTurnSample(user_input=r["input"], response=resp["answer"], retrieved_contexts=ctxs,
-                                        reference=". ".join(r["traits"]) + "."))
+        if ok and (fresh or key not in it):
+            targets.append(r)
     store.save()
-    if not samples:
+    if not targets:
         return
-    os.environ.pop("OPENAI_API_KEY", None)  # 기본 OpenAI로 새지 않게
-    llm = LangchainLLMWrapper(chains._bedrock_llm(os.environ["JUDGE_MODEL_ID"],
-                                                  os.environ.get("AWS_REGION", "us-east-1"), 4096))
-    result = evaluate(EvaluationDataset(samples),
-                      metrics=[Faithfulness(), ResponseRelevancy(), LLMContextPrecisionWithReference(), LLMContextRecall()],
-                      llm=llm, embeddings=LangchainEmbeddingsWrapper(E5Embeddings()),
-                      run_config=RunConfig(max_workers=chains.LLM_MAX_CONCURRENCY, max_retries=6, max_wait=30, timeout=300),
-                      show_progress=False, raise_exceptions=False)
-    df = result.to_pandas()
-    for qid, (_, row) in zip(todo, df.iterrows()):
-        store.item(qid)["ragas"] = {k: (None if row.get(col) is None or (isinstance(row.get(col), float)
-                                                                          and math.isnan(row.get(col)))
-                                        else float(row.get(col))) for k, col in RAGAS_COLS.items()}
+
+    def ctxs(it):
+        return [f"[{names.get(c['doc_id'].split('#')[0], '상품 미상')} 리뷰 · {c['doc_id']}] {c['text']}"
+                for c in it["call"]["response"]["contexts"]]
+
+    results = {r["id"]: {k: None for k in RAGAS_COLS} for r in targets}
+    notes: dict[str, dict] = {r["id"]: {} for r in targets}
+    if definition == "orig":
+        samples = [SingleTurnSample(user_input=r["input"], response=store.item(r["id"])["call"]["response"]["answer"],
+                                    retrieved_contexts=ctxs(store.item(r["id"])),
+                                    reference=". ".join(r["traits"]) + ".") for r in targets]
+        for r, vals in zip(targets, _ragas_eval(samples, list(RAGAS_COLS))):
+            results[r["id"]].update(vals)
+    else:
+        groups: dict[str, list] = {"faith": [], "rel": [], "ctx": []}
+        for r in targets:
+            it = store.item(r["id"])
+            answer = it["call"]["response"]["answer"]
+            rv = review_response(answer)
+            if rv:
+                groups["faith"].append((r, SingleTurnSample(user_input=r["input"], response=rv,
+                                                            retrieved_contexts=ctxs(it))))
+            else:
+                notes[r["id"]]["faithfulness"] = "답변에 리뷰로 만든 문장이 없음(실구매 후기 없음·근거 부족 안내뿐)"
+            groups["rel"].append((r, SingleTurnSample(user_input=r["input"], response=answer,
+                                                      retrieved_contexts=ctxs(it))))
+            rt = review_traits(r["traits"])
+            if rt:
+                groups["ctx"].append((r, SingleTurnSample(user_input=r["input"], response=answer,
+                                                          retrieved_contexts=ctxs(it),
+                                                          reference=". ".join(rt) + ".")))
+            else:
+                notes[r["id"]]["context_precision"] = notes[r["id"]]["context_recall"] = "리뷰로 답할 수 있는 기대 항목 없음"
+        for gname, keys in (("faith", ["faithfulness"]), ("rel", ["answer_relevancy"]),
+                            ("ctx", ["context_precision", "context_recall"])):
+            pairs = groups[gname]
+            for (r, _), vals in zip(pairs, _ragas_eval([smp for _, smp in pairs], keys)):
+                results[r["id"]].update(vals)
+    for r in targets:
+        it = store.item(r["id"])
+        it[key] = results[r["id"]]
+        if definition == "review":
+            it["ragas_version"], it["ragas_notes"] = "review", notes[r["id"]]
     store.save()
 
 
@@ -437,12 +556,17 @@ def build_report(store: Store, rows: list[dict], rnd: int) -> str:
           f"(평가 스크립트가 위 설정으로 API 서버를 띄우고 POST /query로 30문항 호출)",
           f"- 원자료: `evaluation/round{rnd}_results.json` (문항별 응답·trace·Judge·RAGAS)", ""]
 
-    L += ["## 성공 지표 8개", "", "| 지표 | 목표 | 결과 | 판정 | 비고 |", "| --- | --- | --- | --- | --- |"]
+    rg_orig = {k: _mean([it.get("ragas_orig", {}).get(k) for _, it in items if it.get("ragas_orig")])
+               for k in RAGAS_COLS}
+    L += ["## 성공 지표 8개", "",
+          "RAGAS는 리뷰 범위 정의로 판정하고 원 정의 값을 비고에 함께 적는다 (정의는 PRD \"RAGAS 연결\").", "",
+          "| 지표 | 목표 | 결과 | 판정 | 비고 |", "| --- | --- | --- | --- | --- |"]
     n_rg = sum(1 for _, it in items if it.get("ragas"))
     for k, label in [("faithfulness", "Faithfulness (RAGAS)"), ("answer_relevancy", "Answer Relevancy (RAGAS)"),
                      ("context_precision", "Context Precision (RAGAS)"), ("context_recall", "Context Recall (RAGAS)")]:
         nn = sum(1 for _, it in items if it.get("ragas", {}).get(k) is not None)
-        L.append(f"| {label} | {TARGETS[k]:.2f} 이상 | {_fmt(rg[k])} | {_mark(rg[k], TARGETS[k])} | {nn}/{n_rg}문항 평균 |")
+        L.append(f"| {label} | {TARGETS[k]:.2f} 이상 | {_fmt(rg[k])} | {_mark(rg[k], TARGETS[k])} | "
+                 f"리뷰 범위 정의 {nn}/{n_rg}문항 평균 · 원 정의 {_fmt(rg_orig[k])} |")
     n_judge = sum(1 for v in vs.values() if v["score"] is not None)
     L.append(f"| LLM-as-Judge (5점) | {TARGETS['judge']:.1f} 이상 | {_fmt(judge)} | {_mark(judge, TARGETS['judge'])} | {n_judge}문항 평균 |")
     sp_acc = sp.get("accuracy")
@@ -511,14 +635,28 @@ def build_report(store: Store, rows: list[dict], rnd: int) -> str:
     L.append("")
 
     L += ["## RAGAS 대상과 문항별 값", "",
-          "대상: positive·edge 중 contexts가 있는 문항. reference는 expected_traits를 문장으로 이어 붙였다. "
-          "contexts 청크 앞에는 doc_id로 찾은 상품명을 붙였다(청크 본문에 상품명이 없어 RAGAS가 어느 상품의 후기인지 판정하지 못하기 때문).", "",
-          "| # | faithfulness | answer_relevancy | context_precision | context_recall |", "| --- | --- | --- | --- | --- |"]
+          "대상: positive·edge 중 contexts가 있는 문항. contexts 청크 앞에는 doc_id로 찾은 상품명을 붙였다"
+          "(청크 본문에 상품명이 없어 RAGAS가 어느 상품의 후기인지 판정하지 못하기 때문).", "",
+          "- **리뷰 범위 정의 (판정 기준):** faithfulness는 답변 중 리뷰로 만든 문장(요약·추천 근거·장단점·비추천 대상, "
+          "가격 줄 제외, 문장 앞에 모델명)만, context_precision·recall의 reference는 expected_traits 중 리뷰로 답할 수 있는 "
+          "항목(리뷰·후기·장점·단점 포함)만 쓴다. answer_relevancy는 답변 전체.",
+          "- **원 정의 (참고):** response는 답변 전체, reference는 expected_traits 전체.", "",
+          "| # | F | AR | CP | CR | 원 정의 F | 원 정의 CP | 원 정의 CR | 리뷰 범위 reference |",
+          "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for r, it in items:
-        if it.get("ragas"):
-            g = it["ragas"]
-            L.append(f"| {r['id']} | {_fmt(g['faithfulness'])} | {_fmt(g['answer_relevancy'])} | "
-                     f"{_fmt(g['context_precision'])} | {_fmt(g['context_recall'])} |")
+        if it.get("ragas") or it.get("ragas_orig"):
+            g, o = it.get("ragas") or {}, it.get("ragas_orig") or {}
+            notes = it.get("ragas_notes") or {}
+
+            def cell(k, g=g, notes=notes):
+                return _fmt(g.get(k)) if g.get(k) is not None else ("제외" if k in notes else _fmt(None))
+            L.append(f"| {r['id']} | {cell('faithfulness')} | {cell('answer_relevancy')} | {cell('context_precision')} | "
+                     f"{cell('context_recall')} | {_fmt(o.get('faithfulness'))} | {_fmt(o.get('context_precision'))} | "
+                     f"{_fmt(o.get('context_recall'))} | {'; '.join(review_traits(r['traits'])) or '-'} |")
+    noted = [(r["id"], k, why) for r, it in items for k, why in (it.get("ragas_notes") or {}).items()]
+    if noted:
+        L += ["", "리뷰 범위 정의에서 지표별로 제외한 문항 (F=faithfulness, CP·CR=context precision·recall):", ""]
+        L += [f"- #{i} {k}: {why}" for i, k, why in noted]
     excl = [(r["id"], r["category"], ragas_eligible(r, it)[1]) for r, it in items
             if r["category"] in ("positive", "edge") and not ragas_eligible(r, it)[0]]
     if excl:
@@ -581,16 +719,28 @@ def main() -> None:
     ap.add_argument("--skip-ragas", action="store_true")
     ap.add_argument("--skip-extra", action="store_true", help="협찬 정확도·인젝션 차단율 재측정 생략")
     ap.add_argument("--report-only", action="store_true", help="저장된 결과로 리포트만 다시 작성")
+    ap.add_argument("--rescore-ragas", action="store_true",
+                    help="저장된 응답으로 RAGAS만 다시 채점(API·Judge 재호출 없음). 리뷰 범위 정의를 새로 계산")
     args = ap.parse_args()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
     rnd, mode = args.round, ROUND_MODE[args.round]
     rows = load_queries(Path(args.queries), [i.strip() for i in args.ids.split(",")] if args.ids else None)
-    store = Store(EVAL_DIR / f"round{rnd}_results.json", args.fresh)
+    store = Store(EVAL_DIR / f"round{rnd}_results.json", args.fresh and not args.rescore_ragas)
     meta = store.data.setdefault("meta", {})
+    migrate_ragas(store)
 
-    if not args.report_only:
+    if args.rescore_ragas:
+        preflight()
+        rows = [r for r in rows if r["id"] in store.data["items"]]
+        print("[3/5] RAGAS 재채점 — 리뷰 범위 정의(판정 기준)")
+        run_ragas(store, rows, fresh=True, definition="review")
+        print("[3/5] RAGAS — 원 정의(참고, 저장값이 없을 때만)")
+        run_ragas(store, rows, fresh=False, definition="orig")
+        meta["ragas_rescored_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        store.save()
+    elif not args.report_only:
         models = preflight()
         meta.update({"round": rnd, "mode": mode, "commit": _git_head(), **models,
                      "started_at": meta.get("started_at") or datetime.now().strftime("%Y-%m-%d %H:%M")})
@@ -614,8 +764,10 @@ def main() -> None:
             print("[2/5] LLM-as-Judge 채점")
             run_judge(store, rows, args.fresh)
             if not args.skip_ragas:
-                print("[3/5] RAGAS 4지표")
-                run_ragas(store, rows, args.fresh)
+                print("[3/5] RAGAS 4지표 — 리뷰 범위 정의(판정 기준)")
+                run_ragas(store, rows, args.fresh, definition="review")
+                print("[3/5] RAGAS 4지표 — 원 정의(참고)")
+                run_ragas(store, rows, args.fresh, definition="orig")
             if not args.skip_extra:
                 from src import chains, guardrails
 

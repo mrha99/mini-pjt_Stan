@@ -130,11 +130,21 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.0,
     "answer_relevancy": 0.8343898384840811,
     "context_precision": 0.0,
     "context_recall": 0.2
+   },
+   "ragas": {
+    "faithfulness": null,
+    "answer_relevancy": 0.8367302067018006,
+    "context_precision": 0.30357142856130953,
+    "context_recall": 1.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {
+    "faithfulness": "답변에 리뷰로 만든 문장이 없음(실구매 후기 없음·근거 부족 안내뿐)"
    }
   },
   "2": {
@@ -223,7 +233,7 @@
     "failure_type": "조건 미충족"
    },
    "ragas_eligible": false,
-   "ragas_excluded_reason": "contexts 없음 — 리뷰 검색을 거치지 않음(가격·가격 이력만 묻는 질문 등)"
+   "ragas_excluded_reason": "contexts 없음 — retrieve_reviews를 기대했지만 호출하지 않음(에이전트 도구 누락)"
   },
   "3": {
    "call": {
@@ -311,7 +321,7 @@
     "failure_type": "조건 미충족"
    },
    "ragas_eligible": false,
-   "ragas_excluded_reason": "contexts 없음 — 리뷰 검색을 거치지 않음(가격·가격 이력만 묻는 질문 등)"
+   "ragas_excluded_reason": "contexts 없음 — retrieve_reviews를 기대했지만 호출하지 않음(에이전트 도구 누락)"
   },
   "4": {
    "call": {
@@ -394,7 +404,7 @@
     "failure_type": "검색 누락"
    },
    "ragas_eligible": false,
-   "ragas_excluded_reason": "contexts 없음 — 리뷰 검색을 거치지 않음(가격·가격 이력만 묻는 질문 등)"
+   "ragas_excluded_reason": "contexts 없음 — retrieve_reviews를 기대했지만 호출하지 않음(에이전트 도구 누락)"
   },
   "5": {
    "call": {
@@ -526,12 +536,20 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.0851063829787234,
     "answer_relevancy": 0.7719356003574025,
     "context_precision": 0.0,
     "context_recall": 0.25
-   }
+   },
+   "ragas": {
+    "faithfulness": 0.7272727272727273,
+    "answer_relevancy": 0.7719356003574025,
+    "context_precision": 0.9999999999875,
+    "context_recall": 1.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {}
   },
   "6": {
    "call": {
@@ -658,12 +676,20 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": null,
     "answer_relevancy": 0.8523446615328977,
     "context_precision": 0.0,
     "context_recall": 0.25
-   }
+   },
+   "ragas": {
+    "faithfulness": 0.7692307692307693,
+    "answer_relevancy": 0.8568674555377221,
+    "context_precision": 0.9999999999875,
+    "context_recall": 1.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {}
   },
   "7": {
    "call": {
@@ -790,12 +816,20 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.10869565217391304,
     "answer_relevancy": 0.7936936110310757,
     "context_precision": 0.0,
     "context_recall": 0.4
-   }
+   },
+   "ragas": {
+    "faithfulness": 0.6428571428571429,
+    "answer_relevancy": 0.7936936110310757,
+    "context_precision": 0.9583333333173611,
+    "context_recall": 1.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {}
   },
   "8": {
    "call": {
@@ -873,7 +907,7 @@
     "failure_type": "없음"
    },
    "ragas_eligible": false,
-   "ragas_excluded_reason": "contexts 없음 — 리뷰 검색을 거치지 않음(가격·가격 이력만 묻는 질문 등)"
+   "ragas_excluded_reason": "contexts 없음 — 리뷰 검색이 필요 없는 질문(가격·가격 이력)"
   },
   "9": {
    "call": {
@@ -946,7 +980,7 @@
     "failure_type": "없음"
    },
    "ragas_eligible": false,
-   "ragas_excluded_reason": "contexts 없음 — 리뷰 검색을 거치지 않음(가격·가격 이력만 묻는 질문 등)"
+   "ragas_excluded_reason": "contexts 없음 — 리뷰 검색이 필요 없는 질문(가격·가격 이력)"
   },
   "10": {
    "call": {
@@ -1063,12 +1097,20 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.5,
     "answer_relevancy": 0.8626500635960873,
     "context_precision": 0.642857142825,
     "context_recall": 0.75
-   }
+   },
+   "ragas": {
+    "faithfulness": 0.7777777777777778,
+    "answer_relevancy": 0.8661945878182901,
+    "context_precision": 0.642857142825,
+    "context_recall": 1.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {}
   },
   "11": {
    "call": {
@@ -1200,12 +1242,20 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.06666666666666667,
     "answer_relevancy": 0.7477472847718261,
     "context_precision": 0.0,
     "context_recall": 0.6
-   }
+   },
+   "ragas": {
+    "faithfulness": 0.6363636363636364,
+    "answer_relevancy": 0.7477472847718261,
+    "context_precision": 0.3333333333,
+    "context_recall": 0.6666666666666666
+   },
+   "ragas_version": "review",
+   "ragas_notes": {}
   },
   "12": {
    "call": {
@@ -1332,12 +1382,20 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.11764705882352941,
     "answer_relevancy": 0.7934879081346629,
     "context_precision": 0.0,
     "context_recall": 0.25
-   }
+   },
+   "ragas": {
+    "faithfulness": 0.5517241379310345,
+    "answer_relevancy": 0.791166866693518,
+    "context_precision": 0.3333333333,
+    "context_recall": 1.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {}
   },
   "13": {
    "call": {
@@ -1866,7 +1924,7 @@
     "failure_type": "조건 미충족"
    },
    "ragas_eligible": false,
-   "ragas_excluded_reason": "contexts 없음 — 리뷰 검색을 거치지 않음(가격·가격 이력만 묻는 질문 등)"
+   "ragas_excluded_reason": "contexts 없음 — retrieve_reviews를 기대했지만 호출하지 않음(에이전트 도구 누락)"
   },
   "21": {
    "call": {
@@ -1957,11 +2015,21 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.25,
     "answer_relevancy": 0.0,
     "context_precision": 0.999999999975,
     "context_recall": 0.6666666666666666
+   },
+   "ragas": {
+    "faithfulness": null,
+    "answer_relevancy": 0.0,
+    "context_precision": 0.999999999975,
+    "context_recall": 1.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {
+    "faithfulness": "답변에 리뷰로 만든 문장이 없음(실구매 후기 없음·근거 부족 안내뿐)"
    }
   },
   "22": {
@@ -2142,12 +2210,20 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": null,
     "answer_relevancy": 0.880347090409487,
     "context_precision": 0.26666666665333333,
     "context_recall": 0.75
-   }
+   },
+   "ragas": {
+    "faithfulness": 0.6666666666666666,
+    "answer_relevancy": 0.8843816200836949,
+    "context_precision": 0.0,
+    "context_recall": 0.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {}
   },
   "24": {
    "call": {
@@ -2269,11 +2345,22 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.13333333333333333,
     "answer_relevancy": 0.8250363833165983,
     "context_precision": 0.9999999999,
     "context_recall": 0.0
+   },
+   "ragas": {
+    "faithfulness": 0.8333333333333334,
+    "answer_relevancy": 0.8250363833165983,
+    "context_precision": null,
+    "context_recall": null
+   },
+   "ragas_version": "review",
+   "ragas_notes": {
+    "context_precision": "리뷰로 답할 수 있는 기대 항목 없음",
+    "context_recall": "리뷰로 답할 수 있는 기대 항목 없음"
    }
   },
   "25": {
@@ -2386,12 +2473,20 @@
    },
    "ragas_eligible": true,
    "ragas_excluded_reason": "",
-   "ragas": {
+   "ragas_orig": {
     "faithfulness": 0.4,
     "answer_relevancy": 0.8491811271071636,
     "context_precision": 0.7226190476045953,
     "context_recall": 0.0
-   }
+   },
+   "ragas": {
+    "faithfulness": 0.7777777777777778,
+    "answer_relevancy": 0.8472499063029876,
+    "context_precision": 0.6249999999791667,
+    "context_recall": 0.0
+   },
+   "ragas_version": "review",
+   "ragas_notes": {}
   },
   "26": {
    "call": {
@@ -2744,7 +2839,8 @@
   "generator": "claude-sonnet-4-6",
   "judge": "claude-sonnet-4-5",
   "started_at": "2026-11-12 13:17",
-  "finished_at": "2026-11-12 13:31"
+  "finished_at": "2026-11-12 13:31",
+  "ragas_rescored_at": "2026-11-12 13:57"
  },
  "sponsor": {
   "accuracy": 1.0,
