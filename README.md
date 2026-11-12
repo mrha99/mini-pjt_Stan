@@ -67,7 +67,15 @@ JUDGE_MODEL_ID=...             # 평가용 Judge 모델 ID (생성 모델과 다
 LANGSMITH_API_KEY=...
 LANGSMITH_TRACING=true
 LANGSMITH_PROJECT=mini-pjt-shopping-agent
+
+# 선택 (기본값 있음)
+LLM_MAX_CONCURRENCY=3          # Bedrock 동시 호출 수 상한
+LLM_MAX_ATTEMPTS=5             # LLM 일시 오류(분 단위 호출 한도 등) 재시도 횟수. 일일 토큰 한도는 재시도하지 않음
+LLM_RETRY_MAX_DELAY=8          # 재시도 대기 상한(초)
+API_WARMUP=1                   # 0이면 API 시작 시 임베딩·리랭커 예열 생략
 ```
+
+`.env`는 `docker run --env-file`로 그대로 읽히므로 값 뒤에 주석이나 따옴표를 붙이지 않는다(위 예시의 `#` 주석은 설명용).
 
 ### 2-A. Docker로 실행 (클린 환경 재현)
 ```bash
@@ -83,11 +91,20 @@ docker run --env-file .env -p 8000:8000 -p 8501:8501 `
   -v "${PWD}/data:/app/data" mini-pjt-shopping
 ```
 
+- 이미지: `python:3.14.8-slim` + CPU 전용 torch(`download.pytorch.org/whl/cpu`, GPU 패키지 없음) + 고정 목록 `--no-deps` 설치 + 임베딩·리랭커 모델(빌드 시 내려받아 포함, 실행 시 오프라인 로딩).
+- 측정(2026-11-12, Docker 29.9.3): 첫 빌드 약 31분(모델 다운로드 약 23분, 패키지 설치 약 7분), 이미지 5.78GB(모델 3.42GB, 패키지 1.41GB). 코드만 바꾸면 마지막 두 단계만 다시 빌드된다.
+- `.env`는 이미지에 넣지 않고(`.dockerignore`) `--env-file`로 주입한다.
+- `run.sh`는 `data/prices.db`와 리뷰 색인이 없을 때만 만든 뒤 FastAPI(8000) → Streamlit(8501)을 띄운다. 호스트 `data/`를 마운트하면 기존 DB·색인을 그대로 쓰고, 빈 볼륨이면 시작 시 생성한다(약 15초 추가).
+- 헬스체크는 `GET /health`. 모델 예열이 끝나면 healthy가 된다(약 20초). `docker ps`의 STATUS에서 확인.
+
 ### 2-B. 로컬에서 실행
 ```bash
 pip install --no-deps -r requirements.txt   # 전체 의존성 고정 목록 (사유는 requirements.txt 상단 주석)
 bash run.sh        # 가격 DB·리뷰 인덱싱(없을 때만) → FastAPI(8000) → Streamlit(8501) 순서로 실행
 ```
+
+Windows(Git Bash)에서는 가상환경의 Python을 지정해 실행한다: `PYTHON=.venv/Scripts/python bash run.sh`
+Windows에서 새 가상환경을 프로젝트 폴더 밖의 깊은 경로에 만들면 torch 설치가 경로 길이(260자) 제한에 걸릴 수 있으니 프로젝트 폴더 안(`.venv`)에 만든다.
 
 ### 3. 사용
 - UI: http://localhost:8501
