@@ -48,6 +48,10 @@ from dotenv import load_dotenv  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 
 load_dotenv(ROOT / ".env", override=False)
+# 평가는 호출이 몰려 분 단위 호출 한도(ThrottlingException)에 걸리기 쉬워 재시도를 길게 잡는다
+# (평가가 띄우는 API 서버에도 상속). chains가 import되기 전에 설정해야 반영된다.
+os.environ.setdefault("LLM_MAX_ATTEMPTS", "8")
+os.environ.setdefault("LLM_RETRY_MAX_DELAY", "30")
 
 EVAL_DIR = ROOT / "evaluation"
 ROUND_MODE = {1: "vector", 2: "hybrid"}
@@ -435,7 +439,7 @@ def _ragas_eval(samples: list, metric_keys: list[str]) -> list[dict]:
                                                   os.environ.get("AWS_REGION", "us-east-1"), 4096))
     result = evaluate(EvaluationDataset(samples), metrics=[factory[k]() for k in metric_keys],
                       llm=llm, embeddings=LangchainEmbeddingsWrapper(_e5_embeddings()),
-                      run_config=RunConfig(max_workers=chains.LLM_MAX_CONCURRENCY, max_retries=6, max_wait=30,
+                      run_config=RunConfig(max_workers=2, max_retries=10, max_wait=60,
                                            timeout=300),
                       show_progress=False, raise_exceptions=False)
     out = []
@@ -459,7 +463,8 @@ def run_ragas(store: Store, rows: list[dict], fresh: bool, definition: str = "re
         it = store.item(r["id"])
         ok, why = ragas_eligible(r, it)
         it["ragas_eligible"], it["ragas_excluded_reason"] = ok, why
-        if ok and (fresh or key not in it):
+        stored = it.get(key) or {}
+        if ok and (fresh or key not in it or all(v is None for v in stored.values())):  # 값이 모두 비면 다시 채점
             targets.append(r)
     store.save()
     if not targets:

@@ -188,3 +188,27 @@ def test_review_summary_adds_catalog_prices_and_mall_notice(llm, built):
     ])
     r = agent.run("모아딜에서 파는 클린웨이브 V7 사일런트 무선청소기 후기 있어?")
     assert "모아딜 판매분에 등록된 실구매 리뷰는 없어" in r.answer
+
+
+def test_auto_calc_when_retrieve_without_calc(llm, built):
+    """A1′: 리뷰 검색까지 했는데 실결제가를 빠뜨리면, 가격·추천 질문에서 코드가 보충 계산한다(질문 속 카드 반영)."""
+    fake = llm([
+        AIMessage("", tool_calls=[_call("search_products", {"keyword": "음식물처리기", "max_price": 500000}, 1)]),
+        AIMessage("", tool_calls=[_call("fetch_reviews", {"product_names": ["다온 건조분쇄 F1 음식물처리기"]}, 2),
+                                  _call("retrieve_reviews", {"queries": ["4인 가족 음식물처리기"]}, 3)]),
+    ])
+    r = agent.run("4인 가족 음식물처리기 50만원 이하로 추천해줘. 한결카드 있어서 실결제가 기준으로 봐줘")
+    steps = [s["step"] for s in r.trace]
+    assert steps[-3:] == ["calc_real_price", "answer", "guardrail_output"]
+    calc = r.trace[-3]
+    assert "(자동 보충)" in calc["input"] and "한결카드" in calc["input"]
+    assert "371,070원" in r.answer and fake.agent_calls == 2      # F1 하늘몰 한결카드 7% 반영
+
+
+def test_no_auto_calc_for_review_only_question(llm, built):
+    llm([
+        AIMessage("", tool_calls=[_call("fetch_reviews", {"product_names": ["에어리움 터보 X9 무선청소기"]}, 1),
+                                  _call("retrieve_reviews", {"queries": ["터보 X9 장단점"]}, 2)]),
+    ])
+    r = agent.run("에어리움 터보 X9 무선청소기 실사용 후기 장단점 정리해줘. 협찬 리뷰는 빼고")
+    assert "calc_real_price" not in [s["step"] for s in r.trace]

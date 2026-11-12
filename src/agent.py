@@ -31,6 +31,7 @@ import argparse
 import csv
 import json
 import operator
+import re
 import os
 import sys
 import time
@@ -82,7 +83,7 @@ class AgentState(TypedDict, total=False):
     answer: str
     blocked: bool                    # 입력 가드레일 차단 여부
     answer_source: str               # code(도구 결과 렌더링) / llm(에이전트 서술) / guardrail(거절 안내)
-    auto_retrieved: bool             # retrieve_reviews를 코드가 보충 호출했는지 (A1)
+    auto_retrieved: bool             # retrieve_reviews·calc_real_price를 코드가 보충 호출했는지 (A1·A1′)
 
 
 class AgentResult(BaseModel):
@@ -333,7 +334,41 @@ def tools_node(state: AgentState) -> dict:
         extra["auto_retrieved"] = True
         trace.append({"step": "retrieve_reviews", "input": _short(_args_summary("retrieve_reviews", args) + " (자동 보충)"),
                       "output": _short(output)})
+
+    # A1′(2차 평가): 반대로 리뷰 검색까지 했는데 실결제가가 없으면, 가격·추천 질문일 때 코드가 보충 계산한다.
+    # 보유 카드·멤버십은 카탈로그 할인 규칙에 있는 이름이 질문에 나오는지로 찾는다 (LLM이 옮겨 적지 않음).
+    q = state["question"]
+    if (st["products"] and (state.get("retrieved") or extra.get("retrieved")) and not st["real_prices"]
+            and "calc_real_price" not in ran and PRICE_INTENT.search(q) and st["tool_calls"] < MAX_TOOL_CALLS):
+        cards, memberships = payment_options(q, st["products"].values())
+        args = {"user_cards": cards, "user_memberships": memberships}
+        st["tool_calls"] += 1
+        t = time.perf_counter()
+        try:
+            _, output, upd = _run_tool("calc_real_price", args, st)
+        except Exception as exc:  # noqa: BLE001
+            output, upd = f"오류 {type(exc).__name__}", {}
+        timings.append(("tool:calc_real_price(자동 보충)", time.perf_counter() - t))
+        for k, v in upd.items():
+            (st if k in st else extra)[k] = v
+        extra["auto_retrieved"] = True
+        trace.append({"step": "calc_real_price", "input": _short(_args_summary("calc_real_price", args) + " (자동 보충)"),
+                      "output": _short(output)})
     return {"messages": messages, "trace": trace, "timings": timings, **st, **extra}
+
+
+PRICE_INTENT = re.compile(r"추천|만\s*원|카드|멤버십|실결제|최저가|싸|비교|가격|예산")
+
+
+def payment_options(question: str, products) -> tuple[list[str], list[str]]:
+    """질문에 나온 보유 카드·멤버십 이름 (카탈로그 할인 규칙에 있는 이름만)."""
+    cards, memberships = set(), set()
+    for p in products:
+        cards |= {d["card"] for d in p.get("card_discounts", [])}
+        memberships |= {d["membership"] for d in p.get("membership_discounts", [])}
+    norm = question.replace(" ", "")
+    return (sorted(c for c in cards if c.replace(" ", "") in norm),
+            sorted(m for m in memberships if m.replace(" ", "") in norm))
 
 
 # ─────────────────────────────── 노드: answer ───────────────────────────────
