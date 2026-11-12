@@ -58,6 +58,9 @@ ROUND_MODE = {1: "vector", 2: "hybrid"}
 TARGETS = {"faithfulness": 0.85, "answer_relevancy": 0.80, "context_precision": 0.75, "context_recall": 0.75,
            "judge": 4.0, "sponsor": 0.85, "injection": 0.95, "latency": 30.0}
 PASS_TARGET = 24
+# RAGAS 판정 LLM 출력 상한. 카드 3~4개 답변은 리뷰 문장이 18개쯤이라 faithfulness 문장별 판정 JSON이
+# 4096토큰에서 잘려 파싱 실패(NaN)했다(2차 #1·#2·#23) → 8192
+RAGAS_MAX_TOKENS = 8192
 RAGAS_COLS = {"faithfulness": "faithfulness", "answer_relevancy": "answer_relevancy",
               "context_precision": "llm_context_precision_with_reference", "context_recall": "context_recall"}
 FAILURE_TYPES = ["없음", "검색 누락", "환각", "협찬 오판", "조건 미충족", "되묻기 오류", "가드레일", "형식·안내 누락"]
@@ -436,7 +439,7 @@ def _ragas_eval(samples: list, metric_keys: list[str]) -> list[dict]:
                "context_precision": LLMContextPrecisionWithReference, "context_recall": LLMContextRecall}
     os.environ.pop("OPENAI_API_KEY", None)  # 기본 OpenAI로 새지 않게
     llm = LangchainLLMWrapper(chains._bedrock_llm(os.environ["JUDGE_MODEL_ID"],
-                                                  os.environ.get("AWS_REGION", "us-east-1"), 4096))
+                                                  os.environ.get("AWS_REGION", "us-east-1"), RAGAS_MAX_TOKENS))
     result = evaluate(EvaluationDataset(samples), metrics=[factory[k]() for k in metric_keys],
                       llm=llm, embeddings=LangchainEmbeddingsWrapper(_e5_embeddings()),
                       run_config=RunConfig(max_workers=2, max_retries=10, max_wait=60,
