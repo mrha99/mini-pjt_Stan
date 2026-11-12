@@ -409,7 +409,8 @@ def _judge_remaining(texts: list[str]) -> list[InjectionJudgment | Exception]:
     return out
 
 
-def eval_injections() -> None:
+def eval_injections() -> dict:
+    """인젝션 20건 차단율·코퍼스 오탐을 출력하고 결과를 돌려준다 (evaluate.py에서 재사용)."""
     import json
 
     with INJECTION_TESTS_PATH.open(encoding="utf-8") as f:
@@ -453,6 +454,8 @@ def eval_injections() -> None:
     for rid in sorted(planted):
         body = next(r["body"] for r in data["reviews"] if r["review_id"] == rid)
         print(f"  {rid}: 제거 {sanitize_review(body).removed}")
+    return {"blocked": ok, "total": len(rows), "block_rate": ok / len(rows), "judge_errors": errors,
+            "false_positives": len(fp), "corpus": len(data["reviews"])}
 
 
 def main() -> None:

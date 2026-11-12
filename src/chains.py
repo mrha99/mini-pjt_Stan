@@ -976,10 +976,13 @@ def _report(name: str, rows: list[dict], verdicts: list[ReviewVerdict]) -> dict:
         for r, v in wrong:
             print(f"  {r['review_id']} [{r['label_type']}] 정답 {r['gold']} / 예측 {v.label} ({v.method}) — "
                   f"{v.reason[:80]}")
-    return {"accuracy": correct / n, "unknown_rate": unknown / n}
+    hidden = [(r, v) for r, v in zip(rows, verdicts) if r["label_type"] == "hidden_ad"]
+    return {"accuracy": correct / n, "correct": correct, "total": n, "unknown_rate": unknown / n,
+            "hidden_ad_ok": sum(v.label == r["gold"] for r, v in hidden), "hidden_ad_total": len(hidden)}
 
 
-def eval_sponsor(llm_only: bool = False) -> None:
+def eval_sponsor(llm_only: bool = False) -> dict:
+    """협찬 판별 정확도를 출력하고 서비스 경로(규칙 1차 + LLM 2차) 결과를 돌려준다 (evaluate.py에서 재사용)."""
     rows = _load_labeled()
     print(f"협찬 판별 정확도 측정: {LABELS_PATH.relative_to(ROOT)} {len(rows)}건 "
           f"(협찬 {sum(r['gold'] == '협찬' for r in rows)}, 실구매 {sum(r['gold'] == '실구매' for r in rows)})")
@@ -987,11 +990,12 @@ def eval_sponsor(llm_only: bool = False) -> None:
     rule_only = classify_reviews(rows, use_llm=False)
     _report("규칙만 (미정 → 판별 불가)", rows, rule_only)
     pipeline = classify_reviews(rows)
-    _report(f"규칙 1차 + LLM 2차 (서비스 경로) · {time.time() - t:.1f}초", rows, pipeline)
+    result = _report(f"규칙 1차 + LLM 2차 (서비스 경로) · {time.time() - t:.1f}초", rows, pipeline)
     if llm_only:
         t = time.time()
         llm_v = classify_reviews(rows, llm_only=True)
         _report(f"LLM 단독 (비교용) · {time.time() - t:.1f}초", rows, llm_v)
+    return result
 
 
 # ─────────────────────────────── CLI: 데모 ───────────────────────────────
