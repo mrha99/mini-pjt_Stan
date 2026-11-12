@@ -243,8 +243,8 @@ def _real(pid, price, real, ship=0):
             "applied": [{"kind": "card", "name": "한결카드", "detail": "5%", "amount": price + ship - real}] if real < price + ship else []}
 
 
-def _cards_fixture(fake_llm, reviews, card_handler):
-    fake_llm({"CardTexts": card_handler})
+def _cards_fixture(fake_llm, reviews, card_handler, use_card_writer=False):
+    llm = fake_llm({"CardTexts": card_handler})
     products = [_product("P1", "M1", "하늘몰", 300000), _product("P2", "M1", "바로마켓", 290000, 3000),
                 _product("P3", "M2", "하늘몰", 200000), _product("P4", "M3", "모아딜", 250000),
                 _product("P5", "M4", "모아딜", 400000)]
@@ -254,20 +254,24 @@ def _cards_fixture(fake_llm, reviews, card_handler):
     analyses = {
         "M1": ReviewAnalysis(model_id="M1", verdicts=[ReviewVerdict(review_id="rv-a", label="실구매", reason="r"),
                                                       ReviewVerdict(review_id="rv-b", label="협찬", reason="r")],
-                             pros=pros, evidence_chunk_ids=["rv-a#c0"], summary="조용"),
+                             pros=pros, evidence_chunk_ids=["rv-a#c0"], summary="조용",
+                             reasons=[ReasonItem(text="원룸에서 조용함", chunk_ids=["rv-a#c0", "rv-x#c1"])]),
         "M2": ReviewAnalysis(model_id="M2", verdicts=[], summary="실구매 후기 근거 부족"),
         "M3": ReviewAnalysis(model_id="M3", verdicts=[], summary="실구매 후기 근거 부족"),
         "M4": ReviewAnalysis(model_id="M4", verdicts=[], summary="실구매 후기 근거 부족"),
     }
     chunks = [_chunk("rv-a#c0", "M1")]
-    return chains.build_cards("조용한 청소기", products, reals, analyses, chunks, ["소음"])
+    cards = chains.build_cards("조용한 청소기", products, reals, analyses, chunks, ["소음"],
+                               use_card_writer=use_card_writer)
+    return cards, llm
 
 
 def test_build_cards_top3_distinct_models_sorted_malls(fake_llm, reviews):
     def card_handler(p):
         return CardTexts(cards=[CardText(model_id="M1", summary="조용한 모델",
                                          reasons=[ReasonItem(text="조용함", chunk_ids=["rv-a#c0", "rv-x#c1"])])])
-    cards = _cards_fixture(fake_llm, reviews, card_handler)
+    cards, llm = _cards_fixture(fake_llm, reviews, card_handler, use_card_writer=True)
+    assert llm.calls == ["CardTexts"]
     assert len(cards) == 3 and len({c.model_id for c in cards}) == 3
     assert "M4" not in {c.model_id for c in cards}          # 가장 비싸고 근거 없음
     m1 = next(c for c in cards if c.model_id == "M1")
@@ -282,12 +286,21 @@ def test_build_cards_top3_distinct_models_sorted_malls(fake_llm, reviews):
 def test_build_cards_writer_failure_uses_fallback(fake_llm, reviews):
     def boom(_):
         raise _client_error("ValidationException")
-    cards = _cards_fixture(fake_llm, reviews, boom)
+    cards, _ = _cards_fixture(fake_llm, reviews, boom, use_card_writer=True)
     assert all(c.reasons for c in cards)
 
 
+def test_build_cards_default_uses_analysis_text_without_extra_llm_call(fake_llm, reviews):
+    cards, llm = _cards_fixture(fake_llm, reviews, lambda p: CardTexts(cards=[]))
+    assert llm.calls == []                                       # 카드 문구 전용 호출 없음
+    m1 = next(c for c in cards if c.model_id == "M1")
+    assert m1.summary == "조용"
+    assert m1.reasons[0].text == "원룸에서 조용함" and m1.reasons[0].chunk_ids == ["rv-a#c0"]
+    assert m1.reasons[-1].text.startswith("최저 실결제가 285,000원")
+
+
 def test_render_answer(fake_llm, reviews):
-    cards = _cards_fixture(fake_llm, reviews, lambda p: CardTexts(cards=[]))
+    cards, _ = _cards_fixture(fake_llm, reviews, lambda p: CardTexts(cards=[]))
     text = chains.render_answer(cards[:2], category="무선청소기",
                                 blog_refs=[{"title": "블로그 글", "link": "https://blog.naver.com/x/1"}])
     assert "샘플 데이터" in text and "판매처별 실결제가 [샘플 데이터]" in text
@@ -302,8 +315,8 @@ def test_cards_evidence_first_and_review_stats(fake_llm, reviews, monkeypatch):
     from collections import Counter
     monkeypatch.setattr(chains, "_model_review_stats",
                         lambda: {"M1": Counter({"실구매": 3, "협찬": 2, "미정": 1})})
-    cards = _cards_fixture(fake_llm, reviews, lambda p: CardTexts(cards=[
-        CardText(model_id="M2", summary="LLM이 쓴 요약", reasons=[ReasonItem(text="쌈")])]))
+    cards, _ = _cards_fixture(fake_llm, reviews, lambda p: CardTexts(cards=[
+        CardText(model_id="M2", summary="LLM이 쓴 요약", reasons=[ReasonItem(text="쌈")])]), use_card_writer=True)
     assert cards[0].model_id == "M1" and cards[0].has_evidence   # 더 비싸도 근거 있는 모델이 1위
     no_ev = [c for c in cards if not c.has_evidence]
     assert no_ev and all(c.summary == chains.NO_EVIDENCE_NOTE for c in no_ev)
@@ -312,3 +325,14 @@ def test_cards_evidence_first_and_review_stats(fake_llm, reviews, monkeypatch):
     text = chains.render_answer(cards)
     assert "이 모델 리뷰 6건 중 협찬 표시 2건은 근거에서 제외" in text
     assert "실구매 후기 없음 · 가격 기준으로만 포함" in text
+
+
+def test_finalize_replaces_contradictory_summary(reviews):
+    rules = chains._rule_verdicts(["rv-a"], [_chunk("rv-a#c0", "M1")])
+    raw = ReviewAnalysis(model_id="M1", verdicts=[], summary="실구매 후기 근거 부족",
+                         pros=[ConditionPoint(condition="소음", point="조용함", chunk_ids=["rv-a#c0"])],
+                         reasons=[ReasonItem(text="조용", chunk_ids=["rv-a#c0"]),
+                                  ReasonItem(text="지어낸 근거", chunk_ids=["rv-b#c0"])])
+    a = chains.finalize_analysis(raw, "M1", rules, [_chunk("rv-a#c0", "M1")])
+    assert a.summary == "조용함"
+    assert [r.text for r in a.reasons] == ["조용"]          # 실구매 청크 근거 없는 추천 근거 제거

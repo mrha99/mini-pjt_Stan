@@ -8,7 +8,10 @@
 | --------------------- | --------------------- | -------------------------------------------------- |
 | sponsorship_judge     | SponsorshipJudgment   | 규칙으로 판단이 안 되는 리뷰 1건 (정확도 측정·단독 판별) |
 | review_analysis       | ReviewAnalysis        | 추천 시 모델당 1회 (그 모델의 리뷰 청크를 묶어서)     |
-| card_writer           | CardTexts             | 추천 시 1회 (Top 3 카드의 요약·추천 근거 문구)        |
+| card_writer (선택)    | CardTexts             | 기본 꺼짐. build_cards(use_card_writer=True)일 때만    |
+
+추천 카드의 요약·추천 근거 문구는 review_analysis 호출에서 함께 받는다 (모델당 1회, 병렬).
+카드 문구 전용 호출을 순차로 한 번 더 하면 약 9초가 늘어 응답 시간 30초를 넘기 때문이다 (PRD 처리 흐름).
 
 협찬 판별 3단계
 1. 규칙: 부정 표현("협찬 아닙니다", "광고 아니고")을 먼저 지운 뒤 대가성 문구가 있으면 '협찬',
@@ -89,6 +92,12 @@ class ConditionPoint(BaseModel):
     chunk_ids: list[str] = Field(description="근거 청크 ID 목록 ({리뷰ID}#c{번호})")
 
 
+class ReasonItem(BaseModel):
+    text: str = Field(description="추천 근거 1문장")
+    chunk_ids: list[str] = Field(default_factory=list,
+                                 description="근거 청크 ID. 가격 비교처럼 리뷰 근거가 아니면 빈 목록")
+
+
 class ReviewAnalysis(BaseModel):
     """모델(model_id) 단위 리뷰 분석 (review_analysis 체인 출력)."""
 
@@ -99,16 +108,12 @@ class ReviewAnalysis(BaseModel):
     not_recommended_for: list[str] = Field(default_factory=list,
                                            description="비추천 대상 (예: '손목이 약한 사람')")
     evidence_chunk_ids: list[str] = Field(default_factory=list, description="분석에 쓴 근거 청크 ID")
-    summary: str = Field(default="", description="실구매 후기 기준 한 줄 요약")
+    summary: str = Field(default="", description="사용자 조건 기준 한 줄 요약 (카드 요약으로 쓴다)")
+    reasons: list[ReasonItem] = Field(default_factory=list,
+                                      description="사용자 조건 기준 추천 근거 2개 (카드 추천 근거로 쓴다)")
 
     def count(self, label: str) -> int:
         return sum(1 for v in self.verdicts if v.label == label)
-
-
-class ReasonItem(BaseModel):
-    text: str = Field(description="추천 근거 1문장")
-    chunk_ids: list[str] = Field(default_factory=list,
-                                 description="근거 청크 ID. 가격 비교처럼 리뷰 근거가 아니면 빈 목록")
 
 
 class CardText(BaseModel):
@@ -431,9 +436,12 @@ _ANALYSIS_SYSTEM = """너는 쇼핑 리뷰 분석가다. 한 모델의 리뷰 �
    조건 관련 항목을 먼저 쓴다. 같은 내용은 하나로 합친다. 항목마다 근거 청크 ID를 단다.
    청크에 없는 스펙·수치·가격은 만들지 않는다.
 3. not_recommended_for: 실구매 리뷰의 단점에 근거해 맞지 않는 사용자를 최대 2개, 짧게 쓴다.
-4. summary: 실구매 후기 기준 한 줄 요약(40자 이내). 실구매 근거가 없으면 '실구매 후기 근거 부족'.
+4. summary: 사용자 질문·조건 기준으로 이 모델을 한 줄로 요약한다(40자 이내, 실구매 후기 근거만).
+   실구매 근거가 없으면 '실구매 후기 근거 부족'.
+5. reasons: 사용자 조건 관점에서 이 모델을 고를 이유(또는 조건에 안 맞는 점) 2개, 각 50자 이내.
+   항목마다 실구매 청크 ID를 chunk_ids에 단다. 가격·순위는 언급하지 않는다(코드가 붙인다).
 verdicts의 reason은 20자 이내로 쓴다.
-5. evidence_chunk_ids: pros·cons에 쓴 청크 ID."""
+6. evidence_chunk_ids: pros·cons·reasons에 쓴 청크 ID."""
 
 _ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
     ("system", _ANALYSIS_SYSTEM),
@@ -444,7 +452,7 @@ _ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
 
 
 def review_analysis_chain() -> Runnable:
-    return _structured(_ANALYSIS_PROMPT, ReviewAnalysis, "review_analysis", max_tokens=1200)
+    return _structured(_ANALYSIS_PROMPT, ReviewAnalysis, "review_analysis", max_tokens=1400)
 
 
 def _rule_verdicts(review_ids: list[str], chunks: list[dict]) -> dict[str, tuple[RuleResult, dict]]:
@@ -494,12 +502,25 @@ def finalize_analysis(raw: ReviewAnalysis, model_id: str, rules: dict[str, tuple
         return out
 
     pros, cons = keep(raw.pros), keep(raw.cons)
-    used = [i for p in pros + cons for i in p.chunk_ids] + [i for i in raw.evidence_chunk_ids if i in valid]
+    # 추천 근거도 실구매 청크 근거가 남은 것만 쓴다 (카드 문구 환각 방지)
+    reasons = []
+    for r in raw.reasons:
+        ids = [i for i in dict.fromkeys(r.chunk_ids) if i in valid]
+        if ids:
+            reasons.append(r.model_copy(update={"chunk_ids": ids}))
+    used = ([i for p in pros + cons for i in p.chunk_ids] + [i for r in reasons for i in r.chunk_ids]
+            + [i for i in raw.evidence_chunk_ids if i in valid])
+    has = bool(pros or cons)
+    summary = raw.summary
+    if has and (not summary.strip() or "근거 부족" in summary):
+        # 장단점 근거가 있는데 '근거 부족'으로 요약하면 카드가 모순되므로 첫 장점(없으면 단점)으로 대신한다
+        summary = (pros or cons)[0].point
     return ReviewAnalysis(
         model_id=model_id, verdicts=verdicts, pros=pros, cons=cons,
         not_recommended_for=raw.not_recommended_for if organic else [],
         evidence_chunk_ids=list(dict.fromkeys(used)),
-        summary=raw.summary if pros or cons else "실구매 후기 근거 부족",
+        summary=summary if has else "실구매 후기 근거 부족",
+        reasons=reasons if has else [],
     )
 
 
@@ -646,11 +667,14 @@ def _card_input(question: str, conditions: list[str], cards: list[Recommendation
     return {"question": question, "conditions": ", ".join(conditions) or "없음", "models": "\n".join(blocks)}
 
 
-def _fallback_text(card: RecommendationCard, analysis: ReviewAnalysis | None,
+def _analysis_text(card: RecommendationCard, analysis: ReviewAnalysis | None,
                    conditions: list[str]) -> CardText:
-    """card_writer 실패 시: 분석 요약 + 조건 관련 장점 우선으로 근거를 만든다."""
-    pros = sorted(card.pros, key=lambda p: p.condition not in conditions)
-    reasons = [ReasonItem(text=p.point, chunk_ids=p.chunk_ids) for p in pros[:2]]
+    """카드 문구 (기본 경로): 리뷰 분석의 요약·추천 근거 + 코드가 계산한 최저 실결제가.
+    분석에 추천 근거가 없으면 조건 관련 장점을 우선으로 근거를 만든다."""
+    reasons = list(analysis.reasons[:2]) if analysis else []
+    if not reasons:
+        pros = sorted(card.pros, key=lambda p: p.condition not in conditions)
+        reasons = [ReasonItem(text=p.point, chunk_ids=p.chunk_ids) for p in pros[:2]]
     reasons.append(ReasonItem(text=f"최저 실결제가 {card.best.real_price:,}원({card.best.mall})"))
     summary = analysis.summary if analysis and card.has_evidence else NO_EVIDENCE_NOTE
     return CardText(model_id=card.model_id, summary=summary, reasons=reasons)
@@ -677,9 +701,10 @@ def _has_evidence(a: ReviewAnalysis | None) -> bool:
 def build_cards(question: str, products: list[dict], real_prices: list[dict],
                 analyses: dict[str, ReviewAnalysis], chunks: list[dict],
                 conditions: list[str] | None = None, top_n: int = 3,
-                use_llm: bool = True) -> list[RecommendationCard]:
+                use_card_writer: bool = False) -> list[RecommendationCard]:
     """서로 다른 model_id Top N 카드. 같은 모델의 판매처는 카드 하나에 묶는다.
-    순위·가격은 코드, 요약·추천 근거 문구는 card_writer 체인(1회 호출).
+    순위·가격은 코드, 요약·추천 근거 문구는 리뷰 분석 결과(ReviewAnalysis.summary·reasons)를 쓴다.
+    use_card_writer=True면 card_writer 체인을 1회 더 호출해 문구를 다시 쓴다 (품질 비교용, 약 9초 추가).
     실구매 후기 근거가 있는 모델이 먼저 오고, 근거 없는 모델은 남는 자리에만 들어간다."""
     conditions = conditions or []
     mall_prices = _mall_prices(products, real_prices)
@@ -716,15 +741,16 @@ def build_cards(question: str, products: list[dict], real_prices: list[dict],
         ))
 
     texts: dict[str, CardText] = {}
-    if use_llm and cards:
+    if use_card_writer and cards:
         try:
             out: CardTexts = card_writer_chain().invoke(_card_input(question, conditions, cards))
             texts = {t.model_id: t for t in out.cards}
         except Exception:  # noqa: BLE001 - 문구 생성 실패 시 분석 결과로 카드 구성
             texts = {}
     for card in cards:
-        t = texts.get(card.model_id) or _fallback_text(card, analyses.get(card.model_id), conditions)
-        allowed = {cid for p in card.pros + card.cons for cid in p.chunk_ids}
+        a = analyses.get(card.model_id)
+        t = texts.get(card.model_id) or _analysis_text(card, a, conditions)
+        allowed = {cid for p in card.pros + card.cons for cid in p.chunk_ids} | set(a.evidence_chunk_ids if a else [])
         card.summary = (t.summary or card.summary) if card.has_evidence else NO_EVIDENCE_NOTE
         card.reasons = [r.model_copy(update={"chunk_ids": [c for c in r.chunk_ids if c in allowed]})
                         for r in t.reasons][:3]
@@ -976,7 +1002,7 @@ def demo(question: str, keyword: str, max_price: int | None, cards_owned: list[s
     print(render_answer(cards, category=keyword,
                         blog_refs=[c.model_dump(mode="json") for c in retrieved.blog_references]))
     print(f"\n시간: 도구 {t1 - t0:.1f}초 · 리뷰 분석({len(found.model_ids)}개 모델, 동시 {LLM_MAX_CONCURRENCY}) "
-          f"{t2 - t1:.1f}초 · 카드 문구 {t3 - t2:.1f}초 · 합계 {t3 - t0:.1f}초")
+          f"{t2 - t1:.1f}초 · 카드 조립 {t3 - t2:.1f}초 · 합계 {t3 - t0:.1f}초")
 
 
 def main() -> None:

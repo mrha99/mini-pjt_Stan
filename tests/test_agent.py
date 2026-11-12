@@ -83,7 +83,7 @@ def test_recommend_flow_fills_args_and_skips_final_llm_turn(llm, built):
     assert r.trace[3]["input"].startswith("판매처별 상품 ") and "0건" not in r.trace[3]["input"]
     assert "샘플 데이터" in r.answer and "판매처별 실결제가" in r.answer
     assert r.contexts and all(c["doc_id"].startswith("rv-") for c in r.contexts)
-    assert fake.structured.count("ReviewAnalysis") >= 1 and "CardTexts" in fake.structured
+    assert fake.structured.count("ReviewAnalysis") >= 1 and "CardTexts" not in fake.structured  # 카드 문구는 분석에서
 
 
 def test_tool_limit_and_search_limit(llm, built):

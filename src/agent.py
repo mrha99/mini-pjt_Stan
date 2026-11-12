@@ -358,7 +358,7 @@ def answer_node(state: AgentState) -> dict:
     if state.get("retrieved") and real:
         ids = [m for m in model_ids if any(p["model_id"] == m for p in products.values())]
         analyses = timed("answer:review_analysis", chains.analyze_models, q, chunks, ids, conditions)
-        cards = timed("answer:card_writer", chains.build_cards, q, list(products.values()), real,
+        cards = timed("answer:cards", chains.build_cards, q, list(products.values()), real,
                       analyses, chunks, conditions)
         parts.append(chains.render_answer(cards, category=category, notices=notices,
                                           blog_refs=state.get("blog_refs")))
@@ -366,7 +366,7 @@ def answer_node(state: AgentState) -> dict:
         summary = (f"후보 모델 {len(ids)}개 + 리뷰 청크 {len(chunks)}개", f"추천 카드 {len(cards)}개")
     elif real:
         cards = chains.build_cards(q, list(products.values()), real, {}, [], conditions,
-                                   top_n=len(model_ids) or 10, use_llm=False)
+                                   top_n=len(model_ids) or 10)
         parts.append(chains.render_price_answer(cards, notices))
         summary = (f"판매처 {len(real)}곳 실결제가", f"실결제가 비교 {len(cards)}개 모델")
     elif state.get("retrieved"):
@@ -528,8 +528,7 @@ def run(question: str, with_langsmith: bool = False) -> AgentResult:
 SPEEDUP_TIPS = {
     "answer:review_analysis": "리뷰 분석은 모델 수만큼 병렬 호출이라 가장 느린 1건이 전체 시간이다. 분석 프롬프트 출력(장단점 개수·글자 수)을 더 줄이거나, "
                               "리뷰 분석에 더 빠른 모델(BEDROCK_MODEL_ID와 별도 설정)을 쓰거나, 카드에 오를 상위 3개 모델만 분석한다.",
-    "answer:card_writer": "카드 문구 호출을 생략하고(build_cards use_llm=False) 리뷰 분석의 요약·장점으로 카드를 만들면 이 단계가 0초가 된다. "
-                          "또는 리뷰 분석 스키마에 카드 요약·추천 근거를 함께 받아 순차 호출 1회를 없앤다.",
+    "answer:cards": "카드 조립은 코드 계산이라 느리면 use_card_writer=True(카드 문구 LLM 추가 호출)가 켜져 있는지 확인한다.",
     "agent_llm": "에이전트 LLM 턴 수를 줄인다(첫 턴에 search_products와 calc_real_price를 함께 요청, 재검색 최소화). "
                  "도구 스키마·시스템 프롬프트를 줄여 입력 토큰을 낮추거나 에이전트에 더 빠른 모델을 쓴다.",
     "tool:retrieve_reviews": "리랭커(CPU, 후보 20개)가 대부분이다. RERANK_POOL을 줄이거나 서버 시작 시 임베딩·리랭커를 미리 로드한다.",
