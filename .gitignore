@@ -8,3 +8,4 @@ data/chroma/
 *.pdf
 .venv-clean/
 evaluation/.server_*.log
+.archify/
