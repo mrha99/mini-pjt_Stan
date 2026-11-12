@@ -438,3 +438,9 @@ def test_calc_batch_keeps_input_order_and_tool_invoke():
 def test_calc_empty_user_lists_default():
     out = calc_real_price.invoke({"items": [item()]})
     assert out["results"][0]["real_price"] == 203000
+
+
+def test_search_products_drops_weak_matches_for_multi_token_keyword():
+    out = search_products.invoke({"keyword": "클린웨이브 V7 사일런트 무선청소기"})
+    assert out["model_ids"] == ["VC-M1"]          # 같은 브랜드 다른 카테고리·다른 무선청소기 제외
+    assert {p["category"] for p in out["products"]} == {"무선청소기"}

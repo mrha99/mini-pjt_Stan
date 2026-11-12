@@ -771,10 +771,7 @@ def render_answer(cards: list[RecommendationCard], category: str = "", notices: 
                       f"{', 배송비 포함' if b.shipping_fee else ', 무료배송'}) · 판매처 {len(card.prices)}곳 비교",
                   f"   요약: {card.summary}",
                   "   판매처별 실결제가 [샘플 데이터]:"]
-        for mp in card.prices:
-            disc = f" - 할인 {_won(mp.discount)}({'; '.join(mp.applied)})" if mp.discount else ""
-            lines.append(f"   - {mp.mall}: 판매가 {_won(mp.price)} + 배송비 {_won(mp.shipping_fee)}{disc}"
-                         f" = {_won(mp.real_price)} · {mp.link}")
+        lines += _price_lines(card)
         if card.reasons:
             lines.append("   추천 근거:")
             lines += [f"   - {r.text} {refs(r.chunk_ids)}".rstrip() for r in card.reasons]
@@ -799,6 +796,85 @@ def render_answer(cards: list[RecommendationCard], category: str = "", notices: 
         lines += [f"- {r.get('title') or r.get('doc_id')} · {r.get('link', '')}" for r in blog_refs[:3]]
     for n in notices or []:
         lines.append(f"※ {n}")
+    return "\n".join(lines)
+
+
+def _price_lines(card: RecommendationCard) -> list[str]:
+    lines = []
+    for mp in card.prices:
+        disc = f" - 할인 {_won(mp.discount)}({'; '.join(mp.applied)})" if mp.discount else ""
+        lines.append(f"   - {mp.mall}: 판매가 {_won(mp.price)} + 배송비 {_won(mp.shipping_fee)}{disc}"
+                     f" = {_won(mp.real_price)} · {mp.link}")
+    return lines
+
+
+def render_price_answer(cards: list[RecommendationCard], notices: list[str] | None = None) -> str:
+    """리뷰 없이 실결제가만 비교하는 질문 (예: '어디서 사는 게 제일 싸?')."""
+    if not cards:
+        return "가격을 비교할 상품을 찾지 못했습니다. 상품명을 다시 확인해 주세요."
+    cards = sorted(cards, key=lambda c: c.best.real_price)
+    lines = [f"판매처별 실결제가 비교입니다. ({SAMPLE_DATA_NOTICE})"]
+    for c in cards:
+        b = c.best
+        lines += ["", f"■ {c.model_name} · 가장 싼 곳: {b.mall} {_won(b.real_price)} · 판매처 {len(c.prices)}곳",
+                  "   판매처별 실결제가 [샘플 데이터] (싼 순):"]
+        lines += _price_lines(c)
+    lines += [f"※ {n}" for n in notices or []]
+    return "\n".join(lines)
+
+
+def render_review_summary(analyses: dict[str, ReviewAnalysis], chunks: list[dict],
+                          notices: list[str] | None = None) -> str:
+    """특정 상품의 실구매 후기 요약 (가격 비교 없이 리뷰만 묻는 질문)."""
+    if not analyses:
+        return "리뷰를 찾을 상품을 확인하지 못했습니다. 상품명을 다시 알려주세요."
+    models = _models()
+    try:
+        stats = _model_review_stats()
+    except Exception:  # noqa: BLE001
+        stats = {}
+    chunk_by_id = {c["doc_id"]: c for c in chunks}
+    src_no: dict[str, int] = {}
+    src_list: list[tuple[str, str]] = []
+
+    def refs(ids: list[str]) -> str:
+        out = []
+        for cid in ids:
+            ch = chunk_by_id.get(cid)
+            if not ch:
+                continue
+            rid = ch["review_id"]
+            if rid not in src_no:
+                src_no[rid] = len(src_list) + 1
+                src_list.append((ch.get("title") or rid, ch.get("link", "")))
+            out.append(src_no[rid])
+        return "".join(f"[{n}]" for n in sorted(set(out)))
+
+    lines = ["실구매 후기 요약입니다. 협찬·판별 불가 리뷰는 근거에서 제외했습니다. (리뷰: 샘플 데이터)"]
+    for mid, a in analyses.items():
+        st = stats.get(mid, Counter())
+        lines += ["", f"■ {models.get(mid, {}).get('name', mid)}"]
+        if not a.verdicts and not sum(st.values()):
+            lines.append("   등록된 리뷰가 없어 실사용 후기를 확인할 수 없습니다 (확인 불가).")
+            continue
+        lines.append(f"   리뷰 구분: 이 모델 리뷰 {sum(st.values())}건 중 협찬 표시 {st['협찬']}건 제외 · 분석한 리뷰: "
+                     f"실구매 {a.count('실구매')}건 · 협찬 {a.count('협찬')}건 · 판별 불가 {a.count('판별 불가')}건")
+        if not (a.pros or a.cons):
+            lines.append("   실구매 후기 근거가 없어 장단점을 정리할 수 없습니다 (확인 불가).")
+            continue
+        lines.append(f"   요약: {a.summary}")
+        if a.pros:
+            lines.append("   장점:")
+            lines += [f"   - {p.point} {refs(p.chunk_ids)}".rstrip() for p in a.pros]
+        if a.cons:
+            lines.append("   단점:")
+            lines += [f"   - {p.point} {refs(p.chunk_ids)}".rstrip() for p in a.cons]
+        if a.not_recommended_for:
+            lines.append(f"   이런 분께는 비추천: {', '.join(a.not_recommended_for)}")
+    if src_list:
+        lines += ["", "출처 (실구매 후기):"]
+        lines += [f"[{i}] {t} · {link}" for i, (t, link) in enumerate(src_list, 1)]
+    lines += [f"※ {n}" for n in notices or []]
     return "\n".join(lines)
 
 

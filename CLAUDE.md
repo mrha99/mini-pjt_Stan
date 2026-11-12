@@ -40,6 +40,7 @@ tests/    pytest (도구·API)
 | `calc_real_price` | 판매처별 상품 목록(가격·배송비·할인 조건) + 사용자 보유 카드·멤버십 → 상품별 실결제가 | 순수 Python 함수 |
 
 `fetch_reviews`·`calc_real_price`는 여러 건을 한 번에 처리한다 (추천 1건 = 도구 4회, 재검색 포함 최대 6회).
+에이전트용 `calc_real_price`는 `items`를 생략하면 `search_products` 후보 전체로 채운다 (LLM이 가격·할인을 옮겨 적지 않게, PRD "패턴별 설계 메모 > ReAct").
 
 **API 규약 `POST /query`** — 필드 이름·구조 절대 변경 금지. 요청·응답은 Pydantic 모델.
 

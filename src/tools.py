@@ -123,6 +123,10 @@ class JsonCatalogSource:
             score = sum(1 for t in tokens if t in hay) if tokens else 1
             if score > 0:
                 scored.append((score, p))
+        # 여러 토큰 키워드("클린웨이브 V7 사일런트 무선청소기")는 가장 잘 맞는 상품 점수의 절반 이하만 맞는
+        # 상품(같은 브랜드의 다른 카테고리 등)을 뺀다. 한 토큰 키워드는 그대로.
+        best = max((s for s, _ in scored), default=0)
+        scored = [(s, p) for s, p in scored if s * 2 > best]
         # 일치 토큰 수 내림차순 → 판매가 오름차순
         scored.sort(key=lambda x: (-x[0], x[1]["price"]))
         return [p for _, p in scored[:limit]]
