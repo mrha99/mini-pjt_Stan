@@ -291,14 +291,14 @@ def verdict(r: dict, it: dict) -> dict:
         ftype = "API 오류"
     elif j is None:
         ftype = "채점 실패"
-    elif not tools_ok and j["failure_type"] == "없음":
+    elif not tools_ok:  # trace로 확인되는 원인을 Judge의 증상 분류보다 우선한다
         ftype = "도구 누락"
     else:
         ftype = j["failure_type"] if j["failure_type"] != "없음" else ("금지 항목" if forbidden_found else "조건 미충족")
     return {"passed": passed, "traits_met": sum(t["met"] for t in j["traits"]) if j else 0,
             "traits_total": len(r["traits"]), "forbidden_found": forbidden_found,
             "tools_missing": rules["tools_missing"], "failure_type": ftype,
-            "score": j["score"] if j else None}
+            "judge_type": j["failure_type"] if j else None, "score": j["score"] if j else None}
 
 
 # ─────────────────────────────── 3. RAGAS ───────────────────────────────
@@ -324,8 +324,14 @@ def ragas_eligible(r: dict, it: dict) -> tuple[bool, str]:
         return False, f"HTTP {it['call']['status']}"
     if not it["call"]["response"].get("contexts"):
         steps = [s["step"] for s in it["call"]["response"]["trace"]]
-        why = "되묻기(도구 호출 없음)" if not set(steps) & {"search_products", "fetch_reviews", "retrieve_reviews"} \
-            else "리뷰 검색을 거치지 않음(가격·가격 이력만 묻는 질문 등)"
+        if not set(steps) & {"search_products", "fetch_reviews", "retrieve_reviews"}:
+            why = "되묻기(도구 호출 없음)"
+        elif "retrieve_reviews" in r.get("tools", []) and "retrieve_reviews" not in steps:
+            why = "retrieve_reviews를 기대했지만 호출하지 않음(에이전트 도구 누락)"
+        elif "retrieve_reviews" in steps:
+            why = "리뷰 검색 결과 없음"
+        else:
+            why = "리뷰 검색이 필요 없는 질문(가격·가격 이력)"
         return False, f"contexts 없음 — {why}"
     return True, ""
 
@@ -469,13 +475,15 @@ def build_report(store: Store, rows: list[dict], rnd: int) -> str:
     L += ["", "통과 = expected_traits 모두 충족(Judge) + forbidden 미포함(규칙·Judge) + expected_tools 모두 호출(trace).", ""]
 
     L += ["## 문항별 결과", "",
-          "| # | 카테고리 | 통과 | 기대 항목 | 금지 항목 | 도구 누락 | Judge | 시간(초) | 실패 유형 |",
+          "| # | 카테고리 | 통과 | 기대 항목 | 금지 항목 | 도구 누락 | Judge | 시간(초) | 실패 유형 (Judge 증상) |",
           "| --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
     for r, it in items:
         v = vs[r["id"]]
+        symptom = v["judge_type"] if v["judge_type"] not in (None, "없음", v["failure_type"]) else ""
         L.append(f"| {r['id']} | {r['category']} | {'O' if v['passed'] else 'X'} | {v['traits_met']}/{v['traits_total']} | "
                  f"{'; '.join(v['forbidden_found']) or '-'} | {', '.join(v['tools_missing']) or '-'} | "
-                 f"{v['score'] if v['score'] is not None else '-'} | {it['call']['latency_s']} | {v['failure_type']} |")
+                 f"{v['score'] if v['score'] is not None else '-'} | {it['call']['latency_s']} | {v['failure_type']}"
+                 f"{f' ({symptom})' if symptom else ''} |")
     L.append("")
 
     fails = [(r, store.item(r["id"]), vs[r["id"]]) for r in rows if not vs[r["id"]]["passed"]]
@@ -511,12 +519,26 @@ def build_report(store: Store, rows: list[dict], rnd: int) -> str:
             g = it["ragas"]
             L.append(f"| {r['id']} | {_fmt(g['faithfulness'])} | {_fmt(g['answer_relevancy'])} | "
                      f"{_fmt(g['context_precision'])} | {_fmt(g['context_recall'])} |")
-    excl = [(r["id"], r["category"], it.get("ragas_excluded_reason")) for r, it in items
-            if r["category"] in ("positive", "edge") and not it.get("ragas_eligible")]
+    excl = [(r["id"], r["category"], ragas_eligible(r, it)[1]) for r, it in items
+            if r["category"] in ("positive", "edge") and not ragas_eligible(r, it)[0]]
     if excl:
         L += ["", "제외한 positive·edge 문항:", ""]
         L += [f"- #{i} [{c}] {why}" for i, c, why in excl]
     L.append("")
+
+    partial, no_ret = [], []
+    for r, it in items:
+        answer = it["call"]["response"].get("answer", "")
+        for card in re.split(r"\n(?=\d\) )", answer):
+            m = re.search(r"분석한 리뷰: 실구매 (\d+)건", card)
+            if m and int(m.group(1)) > 0 and "실구매 후기 없음 · 가격 기준으로만 포함" in card:
+                partial.append(f"#{r['id']} {card.split(' · ')[0].split(') ', 1)[-1]}")
+        steps = [s["step"] for s in it["call"]["response"]["trace"]]
+        if "retrieve_reviews" in r["tools"] and "retrieve_reviews" not in steps:
+            no_ret.append(f"#{r['id']}")
+    L += ["## 자동 진단 (원자료에서 계산)", "",
+          f"- 실구매 리뷰를 분석했는데 장단점 없이 '실구매 후기 없음'으로 나온 카드: {len(partial)}건 {', '.join(partial)}",
+          f"- retrieve_reviews를 기대했지만 호출하지 않은 문항: {len(no_ret)}건 {', '.join(no_ret)}", ""]
 
     L += ["## 응답 시간", "",
           f"- 전체 30문항: 평균 {_fmt(_mean(lat), 1)}초 · 중앙값 {statistics.median(lat):.1f}초 · p95 {p95:.1f}초 · 최대 {max(lat):.1f}초",
@@ -610,6 +632,11 @@ def main() -> None:
     all_rows = load_queries(Path(args.queries))
     report = build_report(store, [r for r in all_rows if r["id"] in store.data["items"]], rnd)
     out = EVAL_DIR / f"round{rnd}_report.md"
+    old = out.read_text(encoding="utf-8") if out.exists() else ""
+    if "## 근본 원인 분석" in old:  # 사람이 쓴 분석 절은 리포트를 다시 만들어도 보존한다
+        manual = old[old.find("## 근본 원인 분석"):]
+        cut = manual.find("## 4단계 사전 기록")
+        report += "\n" + (manual[:cut] if cut >= 0 else manual).rstrip() + "\n"
     if rnd == 2 and out.exists():
         old = out.read_text(encoding="utf-8")
         pre = old[old.find("## 4단계 사전 기록"):] if "## 4단계 사전 기록" in old else ""
