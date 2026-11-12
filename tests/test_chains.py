@@ -406,3 +406,51 @@ def test_render_catalog_prices():
     text = chains.render_catalog_prices(products, ["M1"])
     assert "샘플 데이터" in text and "모델2" not in text
     assert text.index("바로마켓") < text.index("하늘몰")                 # 판매가+배송비 싼 순
+
+
+# ─────────────────────────────── 2차 평가 후속: 순위 조정 (#12) ───────────────────────────────
+
+
+def _mp(price):
+    return [chains.MallPrice(mall="몰", product_id="p", price=price, shipping_fee=0, discount=0,
+                             real_price=price, link="https://x")]
+
+
+def test_price_first_weights_and_adjacent_penalty():
+    an = {m: ReviewAnalysis(model_id=m, verdicts=[ReviewVerdict(review_id="r", label="실구매", reason="x")] * 3,
+                            pros=[ConditionPoint(condition="가족", point=f"p{i}", chunk_ids=["c"]) for i in range(3)]
+                            if m == "FIT" else [])
+          for m in ("FIT", "CHEAP")}
+    mp = {"FIT": _mp(400000), "CHEAP": _mp(300000)}
+    normal = chains.score_models(an, mp, ["가족"])
+    first = chains.score_models(an, mp, ["가족"], price_first=True)
+    assert normal["FIT"] > normal["CHEAP"] and first["CHEAP"] > first["FIT"]   # 가격 우선이면 순위가 바뀐다
+    pen = chains.score_models(an, mp, ["가족"], adjacent={"CHEAP"})
+    assert pen["CHEAP"] == round(normal["CHEAP"] * chains.ADJACENT_PENALTY, 4)
+
+
+def test_price_first_regex_and_adjacent_catalog():
+    assert chains.PRICE_FIRST_RE.search("한결카드 있어서 실결제가 기준으로 봐줘")
+    assert chains.PRICE_FIRST_RE.search("어디서 사는 게 제일 싸?")
+    assert not chains.PRICE_FIRST_RE.search("원룸에서 쓸 35만원 이하 무선청소기 추천해줘")
+    assert chains.adjacent_models({"FW-M4", "FW-M1"}) == {"FW-M4"}     # 냉장보관 음식물쓰레기통
+
+
+def test_non_review_conditions_not_unverified(reviews):
+    rules = chains._rule_verdicts(["rv-a"], [_chunk("rv-a#c0", "M1")])
+    raw = ReviewAnalysis(model_id="M1", verdicts=[],
+                         unverified_conditions=["4인 가족 용량", "50만원 이하 가격", "한결카드 실결제", "소음"])
+    a = chains.finalize_analysis(raw, "M1", rules, [_chunk("rv-a#c0", "M1")])
+    assert a.unverified_conditions == ["4인 가족 용량", "소음"]
+
+
+def test_adjacent_product_sorted_after_same_category(fake_llm, reviews, monkeypatch):
+    monkeypatch.setattr(chains, "adjacent_models", lambda ids: {"M2"})   # M2 = 인접 상품(가장 쌈)
+    an = {m: ReviewAnalysis(model_id=m, verdicts=[ReviewVerdict(review_id="rv-a", label="실구매", reason="r")],
+                            pros=[ConditionPoint(condition="일반", point="p", chunk_ids=["rv-a#c0"])], summary="s")
+          for m in ("M1", "M2", "M3", "M4")}
+    products = [_product(f"P{i}", m, "몰", price) for i, (m, price) in
+                enumerate([("M1", 300000), ("M2", 100000), ("M3", 250000), ("M4", 280000)])]
+    reals = [_real(p["product_id"], p["price"], p["price"]) for p in products]
+    cards = chains.build_cards("실결제가 기준으로 봐줘", products, reals, an, [_chunk("rv-a#c0", "M1")])
+    assert "M2" not in [c.model_id for c in cards]                       # 같은 카테고리 3개가 자리를 채움

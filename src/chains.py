@@ -180,6 +180,7 @@ class RecommendationCard(BaseModel):
     sources: list[SourceLink] = Field(default_factory=list, description="출처 링크 (실구매 리뷰)")
     sponsorship: SponsorshipSummary
     has_evidence: bool = Field(default=True, description="실구매 후기 근거(장단점) 유무. 없으면 가격 기준으로만 포함")
+    adjacent: bool = Field(default=False, description="카테고리 인접 상품(상품명에 카테고리명이 없음, 순위 감점)")
     data_notice: str = SAMPLE_DATA_NOTICE
     score: float = Field(default=0.0, description="코드가 계산한 순위 점수")
 
@@ -485,15 +486,19 @@ _ANALYSIS_SYSTEM = """너는 쇼핑 리뷰 분석가다. 한 모델의 리뷰 �
    사용자 조건({conditions})과 관련 있으면 condition에 그 조건어를, 무관하면 '일반'을 쓰고
    조건 관련 항목을 먼저 쓴다. 같은 내용은 하나로 합친다. 항목마다 근거 청크 ID를 단다.
    청크에 없는 스펙·수치·가격은 만들지 않는다.
-3. not_recommended_for: 실구매 리뷰의 단점에 근거해 맞지 않는 사용자를 최대 2개, 짧게 쓴다.
+   리뷰 표현을 최대한 그대로 살려 쓰고, 리뷰에 없는 단정("부적합하다", "최고다")이나 과장
+   ("거의 무소음"→"무소음", "조금 있다"→"시끄럽다")을 쓰지 않는다.
+3. not_recommended_for: 실구매 리뷰의 단점에 근거해 맞지 않는 사용자를 최대 2개 쓰되, 근거가 된 리뷰 사실을
+   함께 적는다 (예: "넓은 거실 — '거실에는 역부족' 후기").
 4. summary: 사용자 질문·조건 기준으로 이 모델을 한 줄로 요약한다(40자 이내, 실구매 후기 근거만).
    실구매 근거가 없으면 '실구매 후기 근거 부족'.
 5. reasons: 사용자 조건 관점에서 이 모델을 고를 이유(또는 조건에 안 맞는 점) 2개, 각 50자 이내.
    항목마다 실구매 청크 ID를 chunk_ids에 단다. 가격·순위는 언급하지 않는다(코드가 붙인다).
 verdicts의 reason은 20자 이내로 쓴다.
 6. evidence_chunk_ids: pros·cons·reasons에 쓴 청크 ID.
-7. unverified_conditions: 사용자 조건({conditions}) 중 실구매 리뷰 청크에 근거가 없는 조건어를 그대로 적는다
-   (예: 소음 언급이 없으면 '소음'). 근거가 없는 조건은 추측해서 장단점으로 쓰지 않는다.
+7. unverified_conditions: 사용자 조건({conditions}) 중 실구매 리뷰 청크에 근거가 없는 사용 조건어를 그대로 적는다
+   (예: 소음 언급이 없으면 '소음'). 가격·예산·카드·멤버십은 리뷰로 확인할 대상이 아니므로 적지 않는다.
+   근거가 없는 조건은 추측해서 장단점으로 쓰지 않는다.
 결과는 도구를 한 번만 호출해 한 번에 낸다."""
 
 _ANALYSIS_PROMPT = ChatPromptTemplate.from_messages([
@@ -529,6 +534,10 @@ def _empty_analysis(model_id: str, rules: dict[str, tuple[RuleResult, dict]], wh
                        else f"리뷰 요약 실패 ({why})")
     a._error = why
     return a
+
+
+# 가격·예산·결제수단은 도구(카탈로그·계산기)가 답하는 조건이라 '리뷰 근거 없음(확인 불가)' 대상이 아니다
+_NON_REVIEW_CONDITION = re.compile(r"\d+\s*만?\s*원|가격|예산|카드|멤버십|실결제|할인|최저가")
 
 
 def finalize_analysis(raw: ReviewAnalysis, model_id: str, rules: dict[str, tuple[RuleResult, dict]],
@@ -576,7 +585,8 @@ def finalize_analysis(raw: ReviewAnalysis, model_id: str, rules: dict[str, tuple
         evidence_chunk_ids=list(dict.fromkeys(used)),
         summary=summary if has else "실구매 후기 근거 부족",
         reasons=reasons if has else [],
-        unverified_conditions=list(dict.fromkeys(c.strip() for c in raw.unverified_conditions if c.strip())),
+        unverified_conditions=list(dict.fromkeys(c.strip() for c in raw.unverified_conditions
+                                                 if c.strip() and not _NON_REVIEW_CONDITION.search(c))),
     )
 
 
@@ -659,14 +669,35 @@ def _mall_prices(products: list[dict], real_prices: list[dict]) -> dict[str, lis
     return {m: sorted(v, key=lambda x: (x.real_price, x.price)) for m, v in out.items()}
 
 
+PRICE_FIRST_WEIGHTS = {"fit": 0.3, "price": 0.5, "evidence": 0.2}
+PRICE_FIRST_RE = re.compile(r"실결제가\s*(기준|순)|최저가|(제일|가장)\s*(싸|싼|저렴)|싼\s*(순|곳|거)|저렴한\s*순")
+ADJACENT_PENALTY = 0.7
+
+
+def adjacent_models(model_ids) -> set[str]:
+    """상품명에 카테고리명이 없는 모델 = 핵심 기능이 다른 인접 상품 (예: 음식물처리기 카테고리의 냉장 보관통)."""
+    from src import indexer
+
+    out = set()
+    for p in indexer.catalog().values():
+        if p["model_id"] in model_ids and p.get("category") and p["category"] not in p["name"]:
+            out.add(p["model_id"])
+    return out
+
+
 def score_models(analyses: dict[str, ReviewAnalysis], mall_prices: dict[str, list[MallPrice]],
-                 conditions: list[str]) -> dict[str, float]:
-    """순위 점수 = 0.5·조건 적합도 + 0.3·가격 + 0.2·실구매 근거량.
+                 conditions: list[str], price_first: bool = False,
+                 adjacent: set[str] | None = None) -> dict[str, float]:
+    """순위 점수 = 0.5·조건 적합도 + 0.3·가격 + 0.2·실구매 근거량
+    (price_first: 질문이 실결제가·최저가 기준이면 0.3·조건 + 0.5·가격 + 0.2·근거).
     - 조건 적합도: 조건 관련 장점 수 p, 단점 수 c → (p+1)/(p+c+2) (근거 없으면 0.5)
     - 가격: 후보 중 최저 실결제가 ÷ 이 모델 최저 실결제가
-    - 근거량: min(실구매 리뷰 수, 3) ÷ 3"""
+    - 근거량: min(실구매 리뷰 수, 3) ÷ 3
+    - adjacent(카테고리 인접 상품)는 점수 × 0.7"""
     if not mall_prices:
         return {}
+    weights = PRICE_FIRST_WEIGHTS if price_first else RANK_WEIGHTS
+    adjacent = adjacent or set()
     cheapest = min(v[0].real_price for v in mall_prices.values())
     conds = set(conditions)
     scores = {}
@@ -681,8 +712,8 @@ def score_models(analyses: dict[str, ReviewAnalysis], mall_prices: dict[str, lis
             fit = (p + 1) / (p + c + 2)
             evidence = min(a.count("실구매"), 3) / 3
         price = cheapest / prices[0].real_price if prices[0].real_price else 1.0
-        scores[mid] = round(RANK_WEIGHTS["fit"] * fit + RANK_WEIGHTS["price"] * price
-                            + RANK_WEIGHTS["evidence"] * evidence, 4)
+        score = weights["fit"] * fit + weights["price"] * price + weights["evidence"] * evidence
+        scores[mid] = round(score * (ADJACENT_PENALTY if mid in adjacent else 1.0), 4)
     return scores
 
 
@@ -766,8 +797,14 @@ def build_cards(question: str, products: list[dict], real_prices: list[dict],
     실구매 후기 근거가 있는 모델이 먼저 오고, 근거 없는 모델은 남는 자리에만 들어간다."""
     conditions = conditions or []
     mall_prices = _mall_prices(products, real_prices)
-    scores = score_models(analyses, mall_prices, conditions)
-    ranked = sorted(scores, key=lambda m: (not _has_evidence(analyses.get(m)), -scores[m],
+    try:
+        adjacent = adjacent_models(set(mall_prices))
+    except Exception:  # noqa: BLE001 - 카탈로그를 못 읽으면 감점 없이
+        adjacent = set()
+    scores = score_models(analyses, mall_prices, conditions,
+                          price_first=bool(PRICE_FIRST_RE.search(question or "")), adjacent=adjacent)
+    # 근거 있는 모델 → 같은 카테고리 상품 → 점수 순. 근거 없는 모델·인접 상품은 남는 자리에만 들어간다
+    ranked = sorted(scores, key=lambda m: (not _has_evidence(analyses.get(m)), m in adjacent, -scores[m],
                                            mall_prices[m][0].real_price))[:top_n]
     chunk_by_id = {c["doc_id"]: c for c in chunks}
     models = _models()
@@ -793,7 +830,7 @@ def build_cards(question: str, products: list[dict], real_prices: list[dict],
             rank=i, model_id=mid, model_name=info.get("name", mid), brand=info.get("brand", ""),
             prices=mall_prices[mid], summary=a.summary, reasons=[], pros=a.pros, cons=a.cons,
             not_recommended_for=a.not_recommended_for, sources=sources[:3], score=scores[mid],
-            unverified_conditions=a.unverified_conditions,
+            unverified_conditions=a.unverified_conditions, adjacent=mid in adjacent,
             sponsorship=SponsorshipSummary(organic=a.count("실구매"), sponsored=a.count("협찬"),
                                            unknown=a.count("판별 불가"),
                                            total_reviews=sum(st.values()), disclosed_sponsored=st["협찬"]),
@@ -854,6 +891,8 @@ def render_answer(cards: list[RecommendationCard], category: str = "", notices: 
         b = card.best
         lines += ["", f"{card.rank}) {card.model_name} · 최저 실결제가 {_won(b.real_price)}({b.mall}"
                       f"{', 배송비 포함' if b.shipping_fee else ', 무료배송'}) · 판매처 {len(card.prices)}곳 비교",
+                  *([f"   ※ 카테고리 인접 상품: '{category or '요청 카테고리'}'의 핵심 기능과 다를 수 있어 같은 카테고리 상품 뒤에 두었습니다."]
+                    if card.adjacent else []),
                   f"   요약: {card.summary}",
                   "   판매처별 실결제가 [샘플 데이터]:"]
         lines += _price_lines(card)
