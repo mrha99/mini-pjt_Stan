@@ -336,6 +336,12 @@ def render_price_history(histories: list[dict], period: str, products: dict[str,
     return "\n".join(lines)
 
 
+def _analysis_failures(analyses: dict) -> str:
+    """리뷰 분석 LLM 호출이 실패해 규칙 판별만 남은 모델 수와 사유 (trace 기록용)."""
+    errs = [a.error for a in analyses.values() if a.error]
+    return f" (리뷰 분석 실패 {len(errs)}개 모델: {', '.join(sorted(set(errs)))})" if errs else ""
+
+
 def _final_ai_text(state: AgentState) -> str:
     for m in reversed(state.get("messages", [])):
         if isinstance(m, AIMessage) and not m.tool_calls:
@@ -370,7 +376,8 @@ def answer_node(state: AgentState) -> dict:
         parts.append(chains.render_answer(cards, category=category, notices=notices,
                                           blog_refs=state.get("blog_refs")))
         contexts = chunks
-        summary = (f"후보 모델 {len(ids)}개 + 리뷰 청크 {len(chunks)}개", f"추천 카드 {len(cards)}개")
+        summary = (f"후보 모델 {len(ids)}개 + 리뷰 청크 {len(chunks)}개",
+                   f"추천 카드 {len(cards)}개" + _analysis_failures(analyses))
     elif real:
         cards = chains.build_cards(q, list(products.values()), real, {}, [], conditions,
                                    top_n=len(model_ids) or 10)
@@ -381,7 +388,8 @@ def answer_node(state: AgentState) -> dict:
         analyses = timed("answer:review_analysis", chains.analyze_models, q, chunks, ids, conditions)
         parts.append(chains.render_review_summary(analyses, chunks, notices))
         contexts = chunks
-        summary = (f"모델 {len(ids)}개 + 리뷰 청크 {len(chunks)}개", f"실구매 후기 요약 {len(analyses)}개 모델")
+        summary = (f"모델 {len(ids)}개 + 리뷰 청크 {len(chunks)}개",
+                   f"실구매 후기 요약 {len(analyses)}개 모델" + _analysis_failures(analyses))
     else:
         summary = None
 

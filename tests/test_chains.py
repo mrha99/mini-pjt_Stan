@@ -230,6 +230,8 @@ def test_analyze_models_llm_failure_falls_back(fake_llm, reviews):
     out = chains.analyze_models("q", [_chunk("rv-a#c0", "M1"), _chunk("rv-c#c0", "M1")], ["M1"])
     labels = {v.review_id: v.label for v in out["M1"].verdicts}
     assert labels == {"rv-a": "실구매", "rv-c": "판별 불가"}
+    assert out["M1"].error == "LLM 오류 ClientError"            # 실패 사유는 trace·로그용으로 남는다
+    assert "error" not in out["M1"].model_dump()                  # 스키마·출력에는 없음
 
 
 def _product(pid, mid, mall, price, ship=0):

@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import logging
 import os
 import random
 import re
@@ -48,20 +49,23 @@ from typing import Any, Literal
 from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 ROOT = Path(__file__).resolve().parent.parent
 LABELS_PATH = ROOT / "data" / "labels" / "sponsored_labels.csv"
 
 load_dotenv(ROOT / ".env", override=False)
+logger = logging.getLogger("shopping_agent.chains")
 
 SAMPLE_DATA_NOTICE = "가격·판매처·할인: 샘플 데이터(가짜, 실제 시세 아님)"
 BLOG_LABEL = "실제 블로그 참고 후기"
 
 LLM_MAX_CONCURRENCY = max(1, int(os.getenv("LLM_MAX_CONCURRENCY", "3")))
-LLM_MAX_ATTEMPTS = 4          # 첫 시도 포함
-LLM_RETRY_BASE_DELAY = 1.0    # 초. 1 → 2 → 4 (+지터), 최대 LLM_RETRY_MAX_DELAY
-LLM_RETRY_MAX_DELAY = 8.0
+# Bedrock 호출 한도(ThrottlingException)는 분 단위로 풀리므로 대기 합계가 너무 짧으면 소용없다.
+# 기본 5회 시도 = 대기 1·2·4·8초(지터 0.5~1배) → 합계 약 7.5~15초.
+LLM_MAX_ATTEMPTS = max(1, int(os.getenv("LLM_MAX_ATTEMPTS", "5")))   # 첫 시도 포함
+LLM_RETRY_BASE_DELAY = 1.0    # 초. 1 → 2 → 4 → 8 (+지터), 최대 LLM_RETRY_MAX_DELAY
+LLM_RETRY_MAX_DELAY = float(os.getenv("LLM_RETRY_MAX_DELAY", "8"))
 LLM_READ_TIMEOUT = 60         # 초
 
 SponsorLabel = Literal["협찬", "실구매", "판별 불가"]
@@ -109,6 +113,11 @@ class ReviewAnalysis(BaseModel):
                                            description="비추천 대상 (예: '손목이 약한 사람')")
     evidence_chunk_ids: list[str] = Field(default_factory=list, description="분석에 쓴 근거 청크 ID")
     summary: str = Field(default="", description="사용자 조건 기준 한 줄 요약 (카드 요약으로 쓴다)")
+    _error: str | None = PrivateAttr(default=None)  # LLM 분석 실패 사유 (스키마·출력에는 없음, trace·로그용)
+
+    @property
+    def error(self) -> str | None:
+        return self._error
     reasons: list[ReasonItem] = Field(default_factory=list,
                                       description="사용자 조건 기준 추천 근거 2개 (카드 추천 근거로 쓴다)")
 
@@ -473,9 +482,11 @@ def _empty_analysis(model_id: str, rules: dict[str, tuple[RuleResult, dict]], wh
     verdicts = [ReviewVerdict(review_id=rid, label=rule.label or "판별 불가", method="rule",
                               reason=rule.reason if rule.label else f"{rule.reason} ({why})")
                 for rid, (rule, _) in rules.items()]
-    return ReviewAnalysis(model_id=model_id, verdicts=verdicts,
-                          summary="실구매 후기 근거 부족" if not any(v.label == "실구매" for v in verdicts)
-                          else f"리뷰 요약 실패 ({why})")
+    a = ReviewAnalysis(model_id=model_id, verdicts=verdicts,
+                       summary="실구매 후기 근거 부족" if not any(v.label == "실구매" for v in verdicts)
+                       else f"리뷰 요약 실패 ({why})")
+    a._error = why
+    return a
 
 
 def finalize_analysis(raw: ReviewAnalysis, model_id: str, rules: dict[str, tuple[RuleResult, dict]],
@@ -572,6 +583,8 @@ def analyze_models(question: str, chunks: list[dict], model_ids: list[str],
                                              config={"max_concurrency": LLM_MAX_CONCURRENCY},
                                              return_exceptions=True)
         for (mid, rules, _, mchunks), out in zip(jobs, outs):
+            if isinstance(out, BaseException):
+                logger.warning("review_analysis 실패 %s: %s", mid, type(out).__name__)
             results[mid] = (_empty_analysis(mid, rules, f"LLM 오류 {type(out).__name__}")
                             if isinstance(out, BaseException) else finalize_analysis(out, mid, rules, mchunks))
     return {mid: results[mid] for mid in dict.fromkeys(model_ids)}
