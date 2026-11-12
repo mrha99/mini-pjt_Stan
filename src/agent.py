@@ -641,7 +641,7 @@ def run(question: str, with_langsmith: bool = False) -> AgentResult:
     config = {"run_name": "shopping_agent", "run_id": run_id, "recursion_limit": 40,
               "tags": ["shopping-agent"],
               "metadata": {"review_source": os.getenv("REVIEW_SOURCE", "sample"),
-                           "retriever_mode": os.getenv("RETRIEVER_MODE", "vector")}}
+                           "retriever_mode": retriever._settings_mode()}}   # 실제 검색에 쓰는 값과 같게
     t = time.perf_counter()
     with get_usage_metadata_callback() as cb:
         out = get_graph().invoke({"messages": [HumanMessage(question)], "question": question,

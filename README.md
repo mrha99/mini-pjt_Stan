@@ -3,10 +3,9 @@
 ## 무엇을 푸나
 최저가와 리뷰는 넘쳐나지만 협찬 리뷰와 결제 조건 때문에 "나한테 진짜 맞는 상품"을 고르기 어려운 문제를, 협찬 리뷰를 걸러낸 실구매 후기와 내 조건 기준 실결제가로 서로 다른 모델 상위 3개를 추천하고 모델마다 판매처별 실결제가를 비교해 해결한다.
 
-## 활용한 패턴 (Day 1~7)
-<!-- TODO: 각 패턴을 배운 Day 번호로 X를 바꾸세요 -->
+## 활용한 패턴 (Day 1~12)
 - Day 1: LCEL chain (Pydantic 구조화 출력) — 리뷰 분석·추천 카드를 `prompt | llm.with_structured_output(ReviewAnalysis)` 체인으로 생성하고, 같은 Pydantic 모델을 API 응답 스키마로 재사용
-- Day 3: ReAct (도구 자율 선택) — 에이전트가 질문에 따라 상품 검색·리뷰 검색·가격 계산 도구를 스스로 골라 호출 (요청당 최대 6회)
+- Day 3: ReAct (도구 자율 선택) — 에이전트가 질문에 따라 상품 검색·리뷰 검색·가격 계산 도구를 스스로 골라 호출 (요청당 최대 6회). 에이전트가 리뷰 검색·실결제가 중 하나를 빠뜨리면 코드가 보충 호출하고 trace에 "(자동 보충)"으로 남긴다
 - Day 2: RAG (하이브리드·리랭킹·쿼리 확장) — 리뷰를 BM25 + 벡터 앙상블로 검색(후보 모델로 범위 제한)하고 Cross-encoder로 리랭킹, 사용자 조건어로 멀티 쿼리 확장, 협찬 리뷰 청크는 검색 후보에서 제외
 - Day 4: 도구 다중 (DB·계산기·외부 API) — 네이버 블로그 검색 API(NAVER API HUB), 상품 카탈로그(샘플 JSON), 가격 이력 SQLite, 실결제가 계산기
 - Day 6: 가드레일 (PII·프롬프트 인젝션) — 입력과 리뷰 본문의 인젝션 문구 탐지·제거, 응답의 PII 마스킹, 구매 대행·규제 품목·범위 밖 요청 거절
@@ -58,7 +57,7 @@
 NAVER_CLIENT_ID=...            # NAVER API HUB 블로그 검색 키 ID (헤더 X-NCP-APIGW-API-KEY-ID)
 NAVER_CLIENT_SECRET=...        # NAVER API HUB 블로그 검색 키 (헤더 X-NCP-APIGW-API-KEY)
 REVIEW_SOURCE=sample           # blog: 블로그 API 실데이터("카테고리 + 조건어" 검색, 참고 후기로 별도 표시) / sample: 샘플 리뷰 (평가는 sample)
-RETRIEVER_MODE=vector          # vector: 1차 기준선 / hybrid: BM25+벡터+리랭킹+협찬 제외 (2차)
+RETRIEVER_MODE=hybrid          # hybrid: BM25+벡터+리랭킹+협찬 제외 (최종·2차, 기본값) / vector: 1차 기준선
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=...                 # Claude 모델을 사용할 수 있는 Bedrock 리전
@@ -74,6 +73,7 @@ LLM_MAX_ATTEMPTS=5             # LLM 일시 오류(분 단위 호출 한도 등)
 LLM_RETRY_MAX_DELAY=8          # 재시도 대기 상한(초)
 API_WARMUP=1                   # 0이면 API 시작 시 임베딩·리랭커 예열 생략
 API_URL=http://localhost:8000  # Streamlit UI가 호출할 API 주소 (UI와 API를 따로 띄울 때 지정)
+API_TIMEOUT=120                # Streamlit UI의 API 요청 제한 시간(초)
 ```
 
 `.env`는 `docker run --env-file`로 그대로 읽히므로 값 뒤에 주석이나 따옴표를 붙이지 않는다(위 예시의 `#` 주석은 설명용).
@@ -148,48 +148,75 @@ Invoke-RestMethod -Method Post -Uri http://localhost:8000/query -ContentType "ap
 
 ### 4. 평가 실행
 ```bash
-python src/evaluate.py --queries evaluation/test_queries.csv --round 1
+python src/evaluate.py --queries evaluation/test_queries.csv --round 1   # 1차: RETRIEVER_MODE=vector로 API를 띄워 측정
+python src/evaluate.py --queries evaluation/test_queries.csv --round 2   # 2차: RETRIEVER_MODE=hybrid
 ```
+- 평가 스크립트가 라운드에 맞는 설정으로 API 서버를 직접 띄우고(`REVIEW_SOURCE=sample`), 30문항 → LLM-as-Judge → RAGAS → 협찬 판별 → 인젝션 차단율 순서로 측정해 `evaluation/round{N}_report.md`를 쓴다.
+- 문항별 결과를 `evaluation/round{N}_results.json`에 저장하므로 Bedrock 일일 한도 등으로 멈추면 같은 명령으로 이어서 실행한다. `--fresh`는 처음부터 다시, `--rescore-ragas`는 저장된 응답으로 RAGAS만 다시, `--report-only`는 리포트만 다시 쓴다.
 
 ## RAGAS 평가 결과
-<!-- TODO: 2차(최종) 평가 결과로 채우세요. 목표치는 괄호 안 -->
-- context_recall: 0.XX (목표 0.75 이상)
-- context_precision: 0.XX (목표 0.75 이상)
-- faithfulness: 0.XX (목표 0.85 이상)
-- answer_relevancy: 0.XX (목표 0.80 이상)
+2차(최종, hybrid) 결과. 괄호 안은 목표, 화살표 앞은 1차(vector 기준선).
+- context_recall: **0.88** (목표 0.75 이상) — 1차 0.77 → 달성
+- context_precision: **0.79** (목표 0.75 이상) — 1차 0.62 → 달성
+- faithfulness: **0.75** (목표 0.85 이상) — 1차 0.71 → **미달**
+- answer_relevancy: **0.86** (목표 0.80 이상) — 1차 0.75 → 달성
 
-측정 방식: positive·edge 19문항 중 RAG를 거친(contexts가 있는) 문항 대상, `retrieve_reviews` 결과를 retrieved_contexts로 사용(청크 앞에 상품명). 판정은 **리뷰 범위 정의**로 한다: faithfulness는 답변 중 리뷰로 만든 문장만, context_precision·recall의 reference는 `expected_traits` 중 리뷰로 답할 수 있는 항목만 이어 붙여 쓰고, answer_relevancy는 답변 전체를 쓴다. 가격·판매처는 도구 결과라 RAGAS 대신 출력 가드레일 금액 검사와 Judge가 확인한다. 처음 정의(답변 전체·기대 항목 전체)의 수치도 리포트에 함께 싣는다 (변경 이유는 PRD "RAGAS 연결").
+그 밖의 성공 지표(2차): LLM-as-Judge 평균 4.90(목표 4.0), 협찬 판별 정확도 100%(50/50, 숨은 광고 4/4), 인젝션 차단율 100%(20/20, 일반 리뷰 154건 중 오탐 0건), 응답 시간 최대 20.0초·평균 9.7초(목표 30초). 8개 중 faithfulness를 뺀 7개를 달성했다.
+
+faithfulness 미달 원인: 답변 중 리뷰 문장의 "근거 없음" 판정은 대부분 리뷰 사실을 사용자 조건으로 옮겨 쓴 연결 문장("4인 가족에게 충분한 용량", "수면 중 사용에 부적합")이다. 리뷰 표현을 살리라는 프롬프트 규칙을 넣고 다시 쟀지만 평균은 그대로였다(문항별로 오르내림). 상세는 `evaluation/round2_report.md` "남은 한계".
+
+측정 방식: positive·edge 19문항 중 RAG를 거친(contexts가 있는) 14문항 대상, `retrieve_reviews` 결과를 retrieved_contexts로 사용(청크 앞에 상품명). 판정은 **리뷰 범위 정의**로 한다: faithfulness는 답변 중 리뷰로 만든 문장만, context_precision·recall의 reference는 `expected_traits` 중 리뷰로 답할 수 있는 항목만 이어 붙여 쓰고, answer_relevancy는 답변 전체를 쓴다. 가격·판매처는 도구 결과라 RAGAS 대신 출력 가드레일 금액 검사와 Judge가 확인한다. 처음 정의(답변 전체·기대 항목 전체)의 수치도 리포트에 함께 싣는다 (변경 이유는 PRD "RAGAS 연결"). 처음 정의로는 2차 faithfulness 0.24, context_precision 0.32, context_recall 0.45, answer_relevancy 0.85다.
 
 1·2차 상세 결과: `evaluation/round1_report.md`, `evaluation/round2_report.md`
 
 ## 인-아웃 세트 통과율 (자체 평가)
-<!-- TODO: 실제 결과로 채우세요. 완성 기준은 30문항 중 24문항(80%) 이상, guardrail 항목 100%
-     통과 = expected_traits 모두 충족 + forbidden 미포함 + expected_tools 모두 호출
-     카테고리 구성: positive 12 / negative 6 / edge 7 / guardrail 5 (권장 비율 40/20/25/15%)
-     guardrail 5문항은 SERVICE.md 정책 5건 준수 여부, 인젝션 20개 차단율(95%)은 data/labels/로 별도 측정 -->
-- 1차 (Day 9 종료): XX / 30 통과 — 벡터 단독 검색 기준선
-- 2차 (Day 10 개선 후): XX / 30 통과 — 하이브리드 + 리랭킹 + 쿼리 확장 + 협찬 청크 제외, 가드레일 보완
-- 개선폭: +XX 건 (주요 개선 사항: ...)
+완성 기준은 30문항 중 24문항(80%) 이상 + guardrail 5문항 전부 통과. 통과 = `expected_traits` 모두 충족(Judge) + `forbidden` 미포함(규칙·Judge) + `expected_tools` 모두 호출(trace). 인젝션 20개 차단율은 `data/labels/`로 따로 잰다.
+
+| 구분 | positive (12) | negative (6) | edge (7) | guardrail (5) | 합계 |
+| --- | --- | --- | --- | --- | --- |
+| 1차 (Day 9, vector 기준선) | 6 | 3 | 3 | 5 | **17 / 30** (미달) |
+| 2차 (Day 10, hybrid + 개선) | 12 | 6 | 7 | 5 | **30 / 30** (달성) |
+
+- 개선폭: **+13건**. 주요 개선 사항:
+  - 리뷰 검색·실결제가 자동 보충(A1·A1′): 도구 누락으로 인한 실패 해소
+  - hybrid 검색(협찬 청크 제외·모델별 실구매 우선 할당)
+  - 여러 구조화 출력 중 가장 완전한 것 선택(A2)
+  - 후기 요약에 판매처별 가격(A4), 근거 없는 조건 "확인 불가" 표시(A9)
+  - 실결제가 우선 질문의 가격 가중치·카테고리 인접 상품 후순위
+- 2차는 같은 설정으로 두 번 돌렸다. 첫 완료 실행은 28/30이었고, 남은 실패 #12(순위)를 고친 뒤 처음부터 다시 돌려 30/30이 나왔다. 다른 실패 #3은 Judge 오판이라 코드를 바꾸지 않았는데 재실행에서 통과했다. Judge 판정에 ±1문항 정도 편차가 있다고 본다.
 
 ## 트라이앤에러 회고
-<!-- TODO: 실제 경험으로 바꾸세요. 아래는 이 설계에서 나올 법한 항목 예시 -->
+근거: git log(단계별 커밋), `evaluation/round1_report.md`, `evaluation/round2_report.md`.
+
 - **시도했지만 실패한 접근 · 왜 실패했는가**
-  - 예: 벡터 검색만으로 리뷰를 찾았더니 모델명·숫자(흡입력 W, 소음 dB)가 들어간 질문에서 관련 리뷰를 놓쳤다.
-  - 예: 협찬 판별을 정규식 문구만으로 했더니 문구 없이 쓴 광고성 리뷰를 걸러내지 못했다.
+  - **벡터 단독 검색(1차 기준선).** 협찬 글은 조건어를 고르게 담은 홍보 문장이라 검색 점수가 높아 Top k를 차지했고, 실구매 리뷰가 하나뿐인 모델은 근거 없이 최저가만으로 상위 카드가 됐다. 1차 Context Precision 0.62.
+  - **도구 선택을 LLM에만 맡기기.** 에이전트가 필요한 도구 셋(상품 검색·리뷰 검색·실결제가) 중 하나를 그때그때 다르게 빠뜨렸다. 1차는 `retrieve_reviews` 누락 4건이었고, 그것을 고친 2차 첫 실행에서는 이번엔 `calc_real_price` 누락 10건으로 20/30이 나왔다. 프롬프트 규칙만으로는 막지 못했다.
+  - **카드 문구를 따로 만드는 LLM 호출.** 리뷰 분석 뒤 카드 문구 호출을 하나 더 두었더니 응답 시간이 30초를 넘었다(6단계).
+  - **구조화 출력의 첫 도구 호출만 쓰기.** 모델이 한 응답에 초안과 완성본을 함께 내는 경우가 있어, 실구매 리뷰가 있는데도 "실구매 후기 없음" 카드가 나왔다(1차 A2).
+  - **RAGAS를 답변 전체로 재기(원 정의).** 답변 대부분이 도구가 계산한 가격·판매처 줄이라 리뷰 청크로는 근거를 찾을 수 없어 faithfulness 0.18이 나왔다. 리뷰가 답할 수 없는 부분까지 리뷰 근거로 재고 있었다.
+  - **리뷰 표현 충실 프롬프트 규칙.** faithfulness를 올리려고 리뷰 문구를 살리고 단정·과장을 금지했지만 평균 0.75 그대로였다. 남은 근거 없음은 과장이 아니라 리뷰 사실을 사용자 조건에 잇는 문장에서 나왔다.
+  - **가격 점수를 카테고리 구분 없이 적용.** 음식물처리기 질문에서 처리 기능이 없는 냉장 보관통이 가장 싸다는 이유로 1위가 되고, 질문이 기대한 한결카드 최저가 모델이 4위로 밀렸다(2차 #12).
 - **최종 채택한 접근 · 왜 그것으로 갔는가**
-  - 예: BM25 + 벡터 하이브리드에 리랭킹을 더해 키워드 정확도와 의미 검색을 함께 확보했다.
-  - 예: 문구 규칙으로 1차 거르고 LLM 판별로 2차 확인, 판단이 어려운 리뷰는 "판별 불가"로 따로 표시했다.
+  - **hybrid 검색 + 협찬 청크 제외 + 모델별 실구매 우선 할당.** 대가성 문구가 있는 리뷰 청크를 검색 후보에서 빼고 모델마다 실구매 청크부터 채웠다. 모델별 할당 때문에 4단계 측정에서 Precision@8이 0.93→0.80으로 떨어지는 트레이드오프가 있었지만, 카드마다 실구매 근거를 확보하는 쪽을 택했다. 2차 Context Precision 0.79, Recall 0.88.
+  - **도구 자동 보충(A1·A1′).** 리뷰 수집 뒤 검색이 없으면 `retrieve_reviews`를, 리뷰 검색 뒤 실결제가가 없고 가격·추천 의도이면 `calc_real_price`를 코드가 보충한다. 카드·멤버십은 카탈로그에 있는 이름이 질문에 나오는지로 찾아 LLM이 옮겨 적지 않게 했다. 응답 경로가 안정되고 LLM 턴이 줄었다(2차 30문항 중 18문항에서 동작).
+  - **리뷰 분석 1회에 협찬 판별·장단점·카드 문구 통합.** 모델당 한 번의 구조화 출력 호출(병렬)로 받고 순위·실결제가·카드 조립은 코드가 한다. 2차 최대 응답 시간 20.0초.
+  - **협찬 판별은 문구 규칙 → LLM 2단계.** 규칙으로 대가성 문구를 먼저 거르고 LLM이 숨은 광고를 판별한다. 50건 라벨 기준 100%, 문구 없는 숨은 광고 4/4.
+  - **RAGAS 리뷰 범위 정의.** faithfulness는 답변 중 리뷰로 만든 문장만, precision·recall의 reference는 리뷰로 답할 수 있는 기대 항목만 쓴다. 가격은 출력 가드레일 금액 검사와 Judge가 본다. 원 정의 수치도 리포트에 함께 남겼다.
+  - **실결제가 우선 가중치 + 인접 상품 후순위.** "실결제가 기준·최저가" 질문은 가격 가중치를 0.5로 올리고, 상품명에 카테고리가 없는 인접 상품은 같은 카테고리 상품 뒤에 둔다. #12 통과.
+  - **Bedrock 일일 토큰 한도 대응.** 일일 한도는 재시도하지 않고 바로 503(Retry-After)을 돌려주고, 평가는 문항별로 저장해 이어서 실행한다. 같은 모델이라도 `us.`·`global.` 추론 프로필은 한도가 따로라 평가 중 소진 시 프로필을 바꿔 이어 갔다(리포트에 경위 기록).
 - **남은 한계 · 향후 개선 방향**
+  - **faithfulness 0.75 (목표 0.85 미달).** 추천 근거를 "리뷰 인용 + 대응 조건" 형식으로 바꿔 판단 문장을 줄이거나, 조건 연결 문장을 RAGAS 대상에서 빼는 정의 변경이 남은 방법이다. 전자는 가독성, 후자는 지표 의미가 바뀌어 반영하지 않았다.
+  - **ReAct 자율성 축소.** 2차 30문항 중 18문항에서 코드가 도구를 보충했다. 안정성을 얻은 대신 에이전트의 도구 자율 선택 범위가 줄었다 → 도구 설명·예시를 다듬어 보충 비율을 낮추는 것이 다음 과제.
+  - **Judge 판정 흔들림.** 같은 수준의 답변을 Judge가 3점과 5점으로 다르게 채점한 사례(#3)가 있다 → 여러 번 채점해 다수결로 판정.
   - 상품·가격이 샘플 카탈로그라 실제 시세를 반영하지 못한다 (네이버 쇼핑 검색 API가 2026-07-31 대체 API 없이 종료) → `search_products` 인터페이스를 유지했으므로 공식 가격 API 확보 시 데이터 소스만 교체.
   - 블로그 검색 API는 요약 스니펫만 제공해 실데이터 모드의 협찬 판별 근거가 약하고, 상품명이 가상이라 블로그 결과는 상품 근거가 아닌 참고 후기로만 쓴다 → 쇼핑몰 구매평 등 본문 제공 API 연동.
-  - 예: 가격 이력이 짧아 구매 타이밍 판단이 어렵다 → 장기 수집과 가격 알림(HITL 승인) 추가.
+  - 후보 모델 5개 리뷰 분석이 동시 호출 상한 3에 걸려 두 번에 나눠 실행된다 → 카드에 오를 상위 모델만 분석해 응답 시간 여유 확보.
 
 ## 핵심 코드 위치
-<!-- TODO: 구현 후 실제 줄 번호(NN)로 바꾸세요 -->
-- `src/agent.py:NN` — 메인 에이전트 그래프 (ReAct)
-- `src/tools.py` — 도메인 도구 5종
-- `src/retriever.py` — RAG 파이프라인 (하이브리드 검색·리랭킹·쿼리 확장·협찬 청크 제외)
-- `src/chains.py:NN` — LCEL 체인과 Pydantic 스키마
-- `src/guardrails.py:NN` — 인젝션 탐지·PII 마스킹
-- `src/api.py:NN` — FastAPI 엔드포인트
-- `src/evaluate.py:NN` — RAGAS·LLM-as-Judge 평가
+- `src/agent.py:555` — 메인 에이전트 그래프 (ReAct, `build_graph`). 도구 실행·자동 보충 `tools_node` 285, 진입점 `run` 635
+- `src/tools.py:260` — 도메인 도구 5종 (`search_products` 260, `fetch_reviews` 470, `retrieve_reviews` 534, `query_price_db` 605, `calc_real_price` 748)
+- `src/retriever.py:272` — RAG 파이프라인 `search` (하이브리드 검색·리랭킹·쿼리 확장·협찬 청크 제외). 쿼리 확장 `expand_queries` 131, 리랭커 `CrossEncoderReranker` 171
+- `src/chains.py:105` — LCEL 체인과 Pydantic 스키마 (`ReviewAnalysis` 105, `RecommendationCard` 168, 리뷰 분석 체인 `review_analysis_chain` 512, 순위·카드 조립 `build_cards` 790)
+- `src/guardrails.py:163` — 인젝션 탐지 `detect_injection` (PII 마스킹 `mask_pii` 58, 리뷰 정화 `sanitize_review` 133, 입력 검사 `check_input` 281, 출력 검사 `check_output` 337)
+- `src/api.py:130` — FastAPI 엔드포인트 `POST /query` (`GET /health` 109)
+- `src/evaluate.py:458` — RAGAS 평가 `run_ragas` (LLM-as-Judge `run_judge` 266, 리포트 `build_report` 539)
