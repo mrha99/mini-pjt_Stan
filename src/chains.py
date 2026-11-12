@@ -135,9 +135,11 @@ class MallPrice(BaseModel):
 
 
 class SponsorshipSummary(BaseModel):
-    organic: int = 0
-    sponsored: int = 0
-    unknown: int = 0
+    organic: int = Field(default=0, description="분석한 리뷰 중 실구매")
+    sponsored: int = Field(default=0, description="분석한 리뷰 중 협찬")
+    unknown: int = Field(default=0, description="분석한 리뷰 중 판별 불가")
+    total_reviews: int = Field(default=0, description="이 모델의 색인된 리뷰 전체 수")
+    disclosed_sponsored: int = Field(default=0, description="전체 중 대가성 문구가 있는 협찬 리뷰 수 (규칙)")
     note: str = "협찬·판별 불가 리뷰는 장단점 근거에서 제외했습니다."
 
 
@@ -160,6 +162,7 @@ class RecommendationCard(BaseModel):
     not_recommended_for: list[str] = Field(default_factory=list)
     sources: list[SourceLink] = Field(default_factory=list, description="출처 링크 (실구매 리뷰)")
     sponsorship: SponsorshipSummary
+    has_evidence: bool = Field(default=True, description="실구매 후기 근거(장단점) 유무. 없으면 가격 기준으로만 포함")
     data_notice: str = SAMPLE_DATA_NOTICE
     score: float = Field(default=0.0, description="코드가 계산한 순위 점수")
 
@@ -636,7 +639,8 @@ def _card_input(question: str, conditions: list[str], cards: list[Recommendation
             f"{c.rank}위 model_id={c.model_id} · {c.model_name}\n"
             f"  최저 실결제가 {c.best.real_price:,}원({c.best.mall}), 판매처 {len(c.prices)}곳\n"
             f"  리뷰 구분: 실구매 {c.sponsorship.organic} · 협찬 {c.sponsorship.sponsored} · "
-            f"판별 불가 {c.sponsorship.unknown}\n"
+            f"판별 불가 {c.sponsorship.unknown}"
+            f"{'' if c.has_evidence else ' (실구매 후기 근거 없음: 가격 기준으로만 포함됨)'}\n"
             f"  장점: {_points_text(c.pros)}\n  단점: {_points_text(c.cons)}\n"
             f"  비추천 대상: {', '.join(c.not_recommended_for) or '없음'}")
     return {"question": question, "conditions": ", ".join(conditions) or "없음", "models": "\n".join(blocks)}
@@ -648,7 +652,26 @@ def _fallback_text(card: RecommendationCard, analysis: ReviewAnalysis | None,
     pros = sorted(card.pros, key=lambda p: p.condition not in conditions)
     reasons = [ReasonItem(text=p.point, chunk_ids=p.chunk_ids) for p in pros[:2]]
     reasons.append(ReasonItem(text=f"최저 실결제가 {card.best.real_price:,}원({card.best.mall})"))
-    return CardText(model_id=card.model_id, summary=analysis.summary if analysis else "", reasons=reasons)
+    summary = analysis.summary if analysis and card.has_evidence else NO_EVIDENCE_NOTE
+    return CardText(model_id=card.model_id, summary=summary, reasons=reasons)
+
+
+NO_EVIDENCE_NOTE = "실구매 후기 없음 · 가격 기준으로만 포함"
+
+
+def _model_review_stats() -> dict[str, Counter]:
+    """model_id → Counter(라벨) : 색인된 리뷰 전체의 1차 규칙 라벨 (카드의 리뷰 구분 집계)."""
+    from src import indexer
+
+    stats: dict[str, Counter] = defaultdict(Counter)
+    for info in indexer.review_sponsor_labels().values():
+        if info.get("model_id") and info.get("source") != "blog":
+            stats[info["model_id"]][info["label"]] += 1
+    return stats
+
+
+def _has_evidence(a: ReviewAnalysis | None) -> bool:
+    return bool(a and a.count("실구매") and (a.pros or a.cons))
 
 
 def build_cards(question: str, products: list[dict], real_prices: list[dict],
@@ -656,13 +679,19 @@ def build_cards(question: str, products: list[dict], real_prices: list[dict],
                 conditions: list[str] | None = None, top_n: int = 3,
                 use_llm: bool = True) -> list[RecommendationCard]:
     """서로 다른 model_id Top N 카드. 같은 모델의 판매처는 카드 하나에 묶는다.
-    순위·가격은 코드, 요약·추천 근거 문구는 card_writer 체인(1회 호출)."""
+    순위·가격은 코드, 요약·추천 근거 문구는 card_writer 체인(1회 호출).
+    실구매 후기 근거가 있는 모델이 먼저 오고, 근거 없는 모델은 남는 자리에만 들어간다."""
     conditions = conditions or []
     mall_prices = _mall_prices(products, real_prices)
     scores = score_models(analyses, mall_prices, conditions)
-    ranked = sorted(scores, key=lambda m: (-scores[m], mall_prices[m][0].real_price))[:top_n]
+    ranked = sorted(scores, key=lambda m: (not _has_evidence(analyses.get(m)), -scores[m],
+                                           mall_prices[m][0].real_price))[:top_n]
     chunk_by_id = {c["doc_id"]: c for c in chunks}
     models = _models()
+    try:
+        stats = _model_review_stats()
+    except Exception:  # noqa: BLE001 - 색인이 없으면 분석한 리뷰 수만 표시
+        stats = {}
 
     cards = []
     for i, mid in enumerate(ranked, 1):
@@ -675,12 +704,15 @@ def build_cards(question: str, products: list[dict], real_prices: list[dict],
                 sources.append(SourceLink(review_id=ch["review_id"], title=ch.get("title") or ch["review_id"],
                                           link=ch["link"]))
         info = models.get(mid, {})
+        st = stats.get(mid, Counter())
         cards.append(RecommendationCard(
+            has_evidence=_has_evidence(a),
             rank=i, model_id=mid, model_name=info.get("name", mid), brand=info.get("brand", ""),
             prices=mall_prices[mid], summary=a.summary, reasons=[], pros=a.pros, cons=a.cons,
             not_recommended_for=a.not_recommended_for, sources=sources[:3], score=scores[mid],
             sponsorship=SponsorshipSummary(organic=a.count("실구매"), sponsored=a.count("협찬"),
-                                           unknown=a.count("판별 불가")),
+                                           unknown=a.count("판별 불가"),
+                                           total_reviews=sum(st.values()), disclosed_sponsored=st["협찬"]),
         ))
 
     texts: dict[str, CardText] = {}
@@ -693,7 +725,7 @@ def build_cards(question: str, products: list[dict], real_prices: list[dict],
     for card in cards:
         t = texts.get(card.model_id) or _fallback_text(card, analyses.get(card.model_id), conditions)
         allowed = {cid for p in card.pros + card.cons for cid in p.chunk_ids}
-        card.summary = t.summary or card.summary
+        card.summary = (t.summary or card.summary) if card.has_evidence else NO_EVIDENCE_NOTE
         card.reasons = [r.model_copy(update={"chunk_ids": [c for c in r.chunk_ids if c in allowed]})
                         for r in t.reasons][:3]
     return cards
@@ -752,8 +784,12 @@ def render_answer(cards: list[RecommendationCard], category: str = "", notices: 
         if card.not_recommended_for:
             lines.append(f"   이런 분께는 비추천: {', '.join(card.not_recommended_for)}")
         sp = card.sponsorship
-        lines.append(f"   리뷰 구분: 실구매 {sp.organic}건 · 협찬 {sp.sponsored}건 · 판별 불가 {sp.unknown}건"
-                     f" ({sp.note})")
+        analyzed = f"분석한 리뷰: 실구매 {sp.organic}건 · 협찬 {sp.sponsored}건 · 판별 불가 {sp.unknown}건"
+        if sp.total_reviews:
+            lines.append(f"   리뷰 구분: 이 모델 리뷰 {sp.total_reviews}건 중 협찬 표시 {sp.disclosed_sponsored}건은"
+                         f" 근거에서 제외 · {analyzed} ({sp.note})")
+        else:
+            lines.append(f"   리뷰 구분: {analyzed} ({sp.note})")
 
     if src_list:
         lines += ["", "출처 (실구매 후기):"]

@@ -25,7 +25,7 @@
 - 도구 목록 (도메인·기능·인터페이스)
   - `search_products` — 상품 · 키워드·가격대로 판매처별 상품·가격 검색 · 샘플 카탈로그 `data/products.json` (데이터 소스 교체 가능한 인터페이스)
   - `fetch_reviews` — 리뷰 · 후보 상품명 목록으로 리뷰를 한 번에 수집 후 벡터 DB 색인 · `sample`이면 모델 단위 샘플 리뷰, `REVIEW_SOURCE=blog`이면 네이버 블로그 검색 API(NAVER API HUB)를 "카테고리 + 조건어"로 검색해 "실제 블로그 참고 후기"로 별도 표시 (상품명이 가상이라 상품 근거로 쓰지 않음)
-  - `retrieve_reviews` — 리뷰 · 쿼리 확장 → BM25+벡터 하이브리드 검색 → 리랭킹, 후보 모델(`model_ids`)로 검색 범위 제한 · Python 함수 (Chroma, BM25, Cross-encoder)
+  - `retrieve_reviews` — 리뷰 · 쿼리 확장 → BM25+벡터 하이브리드 검색 → 리랭킹, 후보 모델(`model_ids`)로 검색 범위 제한, 대가성 문구가 있는 협찬 리뷰는 검색 후보에서 제외(실구매 후기 우선) · Python 함수 (Chroma, BM25, Cross-encoder)
   - `query_price_db` — 가격 · 상품별 가격 이력 조회 · SQLite
   - `calc_real_price` — 가격 · 후보 판매처별 상품의 배송비·카드·멤버십 할인을 반영한 실결제가를 한 번에 계산 · Python 계산기
 - 데이터 소스 (문서·DB·API · 실제/가짜 여부)

@@ -7,7 +7,7 @@
 <!-- TODO: 각 패턴을 배운 Day 번호로 X를 바꾸세요 -->
 - Day 1: LCEL chain (Pydantic 구조화 출력) — 리뷰 분석·추천 카드를 `prompt | llm.with_structured_output(ReviewAnalysis)` 체인으로 생성하고, 같은 Pydantic 모델을 API 응답 스키마로 재사용
 - Day 3: ReAct (도구 자율 선택) — 에이전트가 질문에 따라 상품 검색·리뷰 검색·가격 계산 도구를 스스로 골라 호출 (요청당 최대 6회)
-- Day 2: RAG (하이브리드·리랭킹·쿼리 확장) — 리뷰를 BM25 + 벡터 앙상블로 검색(후보 모델로 범위 제한)하고 Cross-encoder로 리랭킹, 사용자 조건어로 멀티 쿼리 확장
+- Day 2: RAG (하이브리드·리랭킹·쿼리 확장) — 리뷰를 BM25 + 벡터 앙상블로 검색(후보 모델로 범위 제한)하고 Cross-encoder로 리랭킹, 사용자 조건어로 멀티 쿼리 확장, 협찬 리뷰 청크는 검색 후보에서 제외
 - Day 4: 도구 다중 (DB·계산기·외부 API) — 네이버 블로그 검색 API(NAVER API HUB), 상품 카탈로그(샘플 JSON), 가격 이력 SQLite, 실결제가 계산기
 - Day 6: 가드레일 (PII·프롬프트 인젝션) — 입력과 리뷰 본문의 인젝션 문구 탐지·제거, 응답의 PII 마스킹, 구매 대행·규제 품목·범위 밖 요청 거절
 - Day 11: Observability · Trace — LangSmith로 체인·도구·에이전트 호출 전 과정 기록
@@ -58,7 +58,7 @@
 NAVER_CLIENT_ID=...            # NAVER API HUB 블로그 검색 키 ID (헤더 X-NCP-APIGW-API-KEY-ID)
 NAVER_CLIENT_SECRET=...        # NAVER API HUB 블로그 검색 키 (헤더 X-NCP-APIGW-API-KEY)
 REVIEW_SOURCE=sample           # blog: 블로그 API 실데이터("카테고리 + 조건어" 검색, 참고 후기로 별도 표시) / sample: 샘플 리뷰 (평가는 sample)
-RETRIEVER_MODE=vector          # vector: 1차 기준선 / hybrid: BM25+벡터+리랭킹 (2차)
+RETRIEVER_MODE=vector          # vector: 1차 기준선 / hybrid: BM25+벡터+리랭킹+협찬 제외 (2차)
 AWS_ACCESS_KEY_ID=...
 AWS_SECRET_ACCESS_KEY=...
 AWS_REGION=...                 # Claude 모델을 사용할 수 있는 Bedrock 리전
@@ -130,7 +130,7 @@ python src/evaluate.py --queries evaluation/test_queries.csv --round 1
      카테고리 구성: positive 12 / negative 6 / edge 7 / guardrail 5 (권장 비율 40/20/25/15%)
      guardrail 5문항은 SERVICE.md 정책 5건 준수 여부, 인젝션 20개 차단율(95%)은 data/labels/로 별도 측정 -->
 - 1차 (Day 9 종료): XX / 30 통과 — 벡터 단독 검색 기준선
-- 2차 (Day 10 개선 후): XX / 30 통과 — 하이브리드 + 리랭킹 + 쿼리 확장, 가드레일 보완
+- 2차 (Day 10 개선 후): XX / 30 통과 — 하이브리드 + 리랭킹 + 쿼리 확장 + 협찬 청크 제외, 가드레일 보완
 - 개선폭: +XX 건 (주요 개선 사항: ...)
 
 ## 트라이앤에러 회고
@@ -150,7 +150,7 @@ python src/evaluate.py --queries evaluation/test_queries.csv --round 1
 <!-- TODO: 구현 후 실제 줄 번호(NN)로 바꾸세요 -->
 - `src/agent.py:NN` — 메인 에이전트 그래프 (ReAct)
 - `src/tools.py` — 도메인 도구 5종
-- `src/retriever.py` — RAG 파이프라인 (하이브리드 검색·리랭킹·쿼리 확장)
+- `src/retriever.py` — RAG 파이프라인 (하이브리드 검색·리랭킹·쿼리 확장·협찬 청크 제외)
 - `src/chains.py:NN` — LCEL 체인과 Pydantic 스키마
 - `src/guardrails.py:NN` — 인젝션 탐지·PII 마스킹
 - `src/api.py:NN` — FastAPI 엔드포인트

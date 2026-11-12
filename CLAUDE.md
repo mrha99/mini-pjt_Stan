@@ -35,7 +35,7 @@ tests/    pytest (도구·API)
 | --- | --- | --- |
 | `search_products` | 키워드, 가격 범위 → 상품·가격·판매처 목록 (`product_id`·`model_id`·할인 정보 포함) | `data/products.json` (데이터 소스 교체 가능하게 분리) |
 | `fetch_reviews` | 상품명 목록(+선택: 조건어) → 리뷰 원문, 벡터 DB 색인 | sample: 모델 단위 샘플 리뷰 / blog: "카테고리 + 조건어" 검색, "실제 블로그 참고 후기"로 별도 표시 |
-| `retrieve_reviews` | 확장 쿼리 목록(+선택: 후보 `model_ids`) → 리랭킹된 리뷰 청크 Top k | BM25 + Chroma, Cross-encoder, `model_ids`로 검색 범위 제한 |
+| `retrieve_reviews` | 확장 쿼리 목록(+선택: 후보 `model_ids`) → 리랭킹된 리뷰 청크 Top k | BM25 + Chroma, Cross-encoder, `model_ids`로 검색 범위 제한, hybrid는 협찬 청크 제외 |
 | `query_price_db` | 상품 ID → 가격 이력 | SQLite `data/prices.db` |
 | `calc_real_price` | 판매처별 상품 목록(가격·배송비·할인 조건) + 사용자 보유 카드·멤버십 → 상품별 실결제가 | 순수 Python 함수 |
 
@@ -72,7 +72,7 @@ tests/    pytest (도구·API)
     - 응답은 제목·요약 스니펫뿐이므로 HTML 태그·엔티티 제거 후 사용. 리뷰 ID는 `blog-{글번호}`
   - `sample`: `data/reviews/sample_reviews.json` (본문 전체, `product_id`로 상품과 연결)
 - **협찬 판별 측정과 1·2차 평가는 항상 `REVIEW_SOURCE=sample`로 실행한다** (재현성).
-- 검색 모드는 `RETRIEVER_MODE=vector|hybrid` (1차 평가 vector 기준선, 2차 hybrid).
+- 검색 모드는 `RETRIEVER_MODE=vector|hybrid` (1차 평가 vector 기준선, 2차 hybrid). hybrid만 규칙상 협찬 리뷰 청크를 검색 후보에서 빼고 모델별 할당을 실구매 우선으로 채운다.
 - 가짜 데이터(상품 카탈로그, 가격 이력, 할인 규칙, 샘플 리뷰, 라벨, 인젝션 테스트)는 파일 메타데이터와 추천 카드에 "샘플 데이터"로 표시한다. 실제 브랜드명 대신 가상 이름을 쓴다.
 
 ## 코딩 규칙

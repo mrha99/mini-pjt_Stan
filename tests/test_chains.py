@@ -296,3 +296,19 @@ def test_render_answer(fake_llm, reviews):
     assert "실제 블로그 참고 후기 (특정 상품의 근거가 아님)" in text
     assert "285,000원(하늘몰" in text
     assert chains.render_answer([]).startswith("조건에 맞는 상품을 찾지 못했습니다")
+
+
+def test_cards_evidence_first_and_review_stats(fake_llm, reviews, monkeypatch):
+    from collections import Counter
+    monkeypatch.setattr(chains, "_model_review_stats",
+                        lambda: {"M1": Counter({"실구매": 3, "협찬": 2, "미정": 1})})
+    cards = _cards_fixture(fake_llm, reviews, lambda p: CardTexts(cards=[
+        CardText(model_id="M2", summary="LLM이 쓴 요약", reasons=[ReasonItem(text="쌈")])]))
+    assert cards[0].model_id == "M1" and cards[0].has_evidence   # 더 비싸도 근거 있는 모델이 1위
+    no_ev = [c for c in cards if not c.has_evidence]
+    assert no_ev and all(c.summary == chains.NO_EVIDENCE_NOTE for c in no_ev)
+    sp = cards[0].sponsorship
+    assert (sp.total_reviews, sp.disclosed_sponsored) == (6, 2)
+    text = chains.render_answer(cards)
+    assert "이 모델 리뷰 6건 중 협찬 표시 2건은 근거에서 제외" in text
+    assert "실구매 후기 없음 · 가격 기준으로만 포함" in text

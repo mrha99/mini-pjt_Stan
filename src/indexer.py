@@ -131,8 +131,9 @@ def get_collection():
 
 def reset_cache() -> None:
     """BM25·컬렉션 캐시를 비운다 (경로·모델 교체, 색인 추가 후)."""
-    global _bm25
+    global _bm25, _labels_cache
     _bm25 = None
+    _labels_cache = None
 
 
 # ─────────────────────────────── 청크·메타데이터 ───────────────────────────────
@@ -344,6 +345,41 @@ def get_bm25() -> BM25Index:
         got = col.get(include=["documents", "metadatas"])
         _bm25 = BM25Index(got["ids"], got["documents"], got["metadatas"])
     return _bm25
+
+
+_labels_cache: tuple[int, dict[str, dict]] | None = None
+
+
+def review_sponsor_labels() -> dict[str, dict]:
+    """색인된 리뷰별 협찬 1차 규칙 라벨: review_id → {label: 협찬|실구매|미정, model_id, source}.
+
+    BM25 인덱스(= Chroma 청크 집합)에서 리뷰 단위로 제목+청크를 이어 붙여 판정하므로
+    다시 색인하지 않아도 되고, 색인이 바뀌면(BM25 재생성) 다시 계산한다.
+    hybrid 검색의 협찬 청크 제외와 추천 카드의 리뷰 구분 집계에 쓴다.
+    """
+    global _labels_cache
+    from src.chains import classify_rule
+
+    bm25 = get_bm25()
+    if _labels_cache is not None and _labels_cache[0] == id(bm25):
+        return _labels_cache[1]
+    parts: dict[str, list[tuple[int, str]]] = {}
+    meta_of: dict[str, dict] = {}
+    for text, meta in zip(bm25.documents, bm25.metadatas):
+        rid = meta.get("review_id")
+        if not rid:
+            continue
+        parts.setdefault(rid, []).append((int(meta.get("chunk_index", 0)), text))
+        meta_of.setdefault(rid, meta)
+    labels = {}
+    for rid, chunks in parts.items():
+        meta = meta_of[rid]
+        body = " ".join(t for _, t in sorted(chunks))
+        rule = classify_rule(f"{meta.get('title', '')}\n{body}")
+        labels[rid] = {"label": rule.label or "미정", "model_id": meta.get("model_id"),
+                       "source": meta.get("source")}
+    _labels_cache = (id(bm25), labels)
+    return labels
 
 
 def main() -> None:

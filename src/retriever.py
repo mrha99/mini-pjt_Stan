@@ -41,6 +41,7 @@ RERANK_POOL = 20           # hybrid: 앙상블 후 리랭커에 넘기는 후보
 RRF_K = 60                 # Reciprocal Rank Fusion 상수 (표준값)
 VECTOR_WEIGHT = 0.6        # 앙상블 가중치: 의미 유사도(벡터)를 조금 더 신뢰
 BM25_WEIGHT = 0.4          #               조건어 정확 일치(BM25)는 보조
+SPONSOR_PRIORITY = {"실구매": 0, "미정": 1, "협찬": 2}  # hybrid 모델별 할당 우선순위
 MODEL_QUOTA_MAX = 2        # hybrid: 후보 모델이 2개 이상일 때 모델당 최소 할당 상한 (min(2, k ÷ 모델 수))
 
 # 리랭커: BAAI/bge-reranker-v2-m3
@@ -206,15 +207,18 @@ class RetrievalResult:
     queries_used: list[str]
     rerank_query: str | None = None
     timings: dict[str, float] = field(default_factory=dict)
+    excluded_sponsored: int = 0  # hybrid: 검색 범위에서 제외한 협찬 리뷰 수
 
 
 def _where(model_ids: list[str] | None, source: str = "sample",
-           categories: list[str] | None = None) -> dict:
+           categories: list[str] | None = None, exclude_reviews: set[str] | None = None) -> dict:
     conds: list[dict] = [{"source": source}]
     if model_ids is not None:
         conds.append({"model_id": {"$in": list(model_ids)}})
     if categories:
         conds.append({"category": {"$in": list(categories)}})
+    if exclude_reviews:
+        conds.append({"review_id": {"$nin": sorted(exclude_reviews)}})
     return conds[0] if len(conds) == 1 else {"$and": conds}
 
 
@@ -237,21 +241,28 @@ def _vector_search(col, query: str, k: int, where: dict) -> list[tuple[str, str,
 
 
 def _allowed_positions(bm25: indexer.BM25Index, model_ids: list[str] | None,
-                       category: str | None = None) -> set[int]:
+                       category: str | None = None, exclude_reviews: set[str] | None = None) -> set[int]:
     model_set = set(model_ids) if model_ids is not None else None
+    exclude_reviews = exclude_reviews or set()
     return {i for i, m in enumerate(bm25.metadatas)
             if m.get("source") == "sample"
             and (model_set is None or m.get("model_id") in model_set)
-            and (category is None or m.get("category") == category)}
+            and (category is None or m.get("category") == category)
+            and m.get("review_id") not in exclude_reviews}
 
 
-def _quota_select(ordered: list[str], model_of, models: list[str], quota: int, limit: int) -> list[str]:
-    """ordered(점수 내림차순)에서 모델마다 quota개를 먼저 고르고 나머지를 순서대로 채워 limit개."""
+def _quota_select(ordered: list[str], model_of, models: list[str], quota: int, limit: int,
+                  priority=None) -> list[str]:
+    """ordered(점수 내림차순)에서 모델마다 quota개를 먼저 고르고 나머지를 순서대로 채워 limit개.
+    priority(c)가 있으면 할당 자리는 priority 오름차순(같으면 점수 순)으로 고른다 (hybrid: 실구매 우선)."""
     if not quota:
         return ordered[:limit]
     picked: list[str] = []
     for m in models:
-        picked += [c for c in ordered if model_of(c) == m][:quota]
+        mine = [c for c in ordered if model_of(c) == m]
+        if priority is not None:
+            mine = sorted(mine, key=priority)  # 안정 정렬이라 같은 우선순위 안에서는 점수 순 유지
+        picked += mine[:quota]
     picked = picked[:limit]
     chosen = set(picked)
     picked += [c for c in ordered if c not in chosen][:limit - len(picked)]
@@ -281,11 +292,14 @@ def search(queries: list[str], model_ids: list[str] | None = None, top_k: int | 
     # hybrid
     expanded = expand_queries(queries)
     bm25 = indexer.get_bm25()
+    # 협찬 청크 제외: 대가성 문구가 있는(규칙상 '협찬') 리뷰는 후보에서 뺀다. '미정'은 남겨 LLM이 판별.
+    labels = indexer.review_sponsor_labels()
+    excluded = {rid for rid, v in labels.items() if v["label"] == "협찬"}
+    priority = lambda c: SPONSOR_PRIORITY.get(labels.get(docs[c][1].get("review_id"), {}).get("label"), 1)  # noqa: E731
     # model_ids가 없고 질의에 카테고리가 드러나면 그 카테고리로 좁힌다 (다른 카테고리 리뷰 혼입 방지)
     category = _category_of(" ".join(queries)) if model_ids is None else None
-    if category:
-        where = _where(None, categories=[category])
-    allowed = _allowed_positions(bm25, model_ids, category)
+    where = _where(model_ids, categories=[category] if category else None, exclude_reviews=excluded)
+    allowed = _allowed_positions(bm25, model_ids, category, excluded)
     fused: dict[str, float] = {}
     docs: dict[str, tuple[str, dict]] = {}
     for q in expanded:
@@ -304,24 +318,26 @@ def search(queries: list[str], model_ids: list[str] | None = None, top_k: int | 
             have = sum(1 for c in fused if docs[c][1].get("model_id") == m)
             if have < quota:
                 for rank, (cid, text, meta, _) in enumerate(
-                        _vector_search(col, queries[0], quota, _where([m]))):
+                        _vector_search(col, queries[0], quota, _where([m], exclude_reviews=excluded))):
                     fused.setdefault(cid, VECTOR_WEIGHT / (RRF_K + CANDIDATE_K + rank + 1))
                     docs[cid] = (text, meta)
     t1 = time.perf_counter()
 
     by_fused = sorted(fused, key=lambda c: -fused[c])
-    pool = _quota_select(by_fused, lambda c: docs[c][1].get("model_id"), models, quota, RERANK_POOL)
+    pool = _quota_select(by_fused, lambda c: docs[c][1].get("model_id"), models, quota, RERANK_POOL, priority)
     rq = rerank_query(queries)
     scores = dict(zip(pool, get_reranker().score(rq, [docs[c][0] for c in pool]))) if pool else {}
     by_score = sorted(pool, key=lambda c: -scores[c])
-    picked = _quota_select(by_score, lambda c: docs[c][1].get("model_id"), models, quota, k)
+    picked = _quota_select(by_score, lambda c: docs[c][1].get("model_id"), models, quota, k, priority)
     ranked = sorted(((c, scores[c]) for c in picked), key=lambda x: -x[1])
     t2 = time.perf_counter()
 
     chunks = [_chunk(c, docs[c][0], docs[c][1], s, fusion_score=round(fused[c], 5))
               for c, s in ranked]
     return RetrievalResult(mode=mode, chunks=chunks, queries_used=expanded, rerank_query=rq,
-                           timings={"ensemble": t1 - t0, "rerank": t2 - t1})
+                           timings={"ensemble": t1 - t0, "rerank": t2 - t1},
+                           excluded_sponsored=sum(1 for r in excluded if model_ids is None
+                                                  or labels[r].get("model_id") in model_ids))
 
 
 def retrieve(queries: list[str], model_ids: list[str] | None = None,

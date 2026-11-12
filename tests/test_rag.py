@@ -262,3 +262,46 @@ def test_compare_cli_prints_both_modes(built, capsys):
     retriever.compare(QUERY, ["VC-M1", "VC-M3"])
     out = capsys.readouterr().out
     assert "━━ vector" in out and "━━ hybrid" in out and "비교: 공통" in out
+
+
+# ─────────────────────────────── 협찬 청크 제외 (hybrid) ───────────────────────────────
+
+CANDIDATES = ["VC-M1", "VC-M3", "VC-M4"]
+
+
+def test_review_sponsor_labels_from_index(built):
+    labels = indexer.review_sponsor_labels()
+    assert labels["rv-0017"]["label"] == "협찬"          # 무상 제공 문구
+    assert labels["rv-0023"]["label"] == "실구매"        # "협찬 아닙니다"는 협찬 아님
+    assert labels["rv-0007"]["label"] == "미정"          # 숨은 광고 → LLM 몫
+    assert labels["rv-0017"]["model_id"] == indexer.catalog()["VC-004"]["model_id"]
+
+
+def test_hybrid_excludes_sponsored_chunks(built):
+    labels = indexer.review_sponsor_labels()
+    r = retriever.search([QUERY], model_ids=CANDIDATES, mode="hybrid")
+    assert r.chunks and all(labels[c["review_id"]]["label"] != "협찬" for c in r.chunks)
+    assert r.excluded_sponsored == sum(1 for v in labels.values()
+                                       if v["label"] == "협찬" and v["model_id"] in CANDIDATES)
+
+
+def test_vector_baseline_does_not_exclude(built):
+    labels = indexer.review_sponsor_labels()
+    r = retriever.search([QUERY], model_ids=CANDIDATES, top_k=40, mode="vector")
+    assert r.excluded_sponsored == 0
+    assert any(labels[c["review_id"]]["label"] == "협찬" for c in r.chunks)
+
+
+def test_hybrid_quota_prefers_organic(built):
+    """VC-M3(슬림 S3)은 실구매 1·미정 1·협찬 1건 → 할당 2자리에 실구매 rv-0025가 들어가야 한다."""
+    r = retriever.search([QUERY], model_ids=CANDIDATES, mode="hybrid")
+    m3 = {c["review_id"] for c in r.chunks if c["model_id"] == "VC-M3"}
+    assert "rv-0025" in m3 and "rv-0026" not in m3
+
+
+def test_quota_select_priority():
+    model = {"a1": "A", "a2": "A", "a3": "A", "b1": "B", "b2": "B"}.get
+    pri = {"a1": 1, "a2": 1, "a3": 0, "b1": 1, "b2": 0}.get
+    ordered = ["a1", "a2", "a3", "b1", "b2"]
+    # 할당은 우선순위(0 먼저), 같은 우선순위 안에서는 점수 순 / 나머지 자리는 점수 순
+    assert retriever._quota_select(ordered, model, ["A", "B"], 1, 3, pri) == ["a3", "b2", "a1"]
