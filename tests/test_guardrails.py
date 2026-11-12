@@ -78,3 +78,11 @@ def test_output_masks_pii_links_amounts():
     assert "evil" not in v.text and v.removed_links == 1
     assert "[확인 불가]" in v.text and "189,000원" in v.text and v.unverified_amounts == 1
     assert check_output("35만원 이하", allowed_amounts={350000}).unverified_amounts == 0
+
+
+def test_output_budget_ranges_are_not_price_claims():
+    """되묻기 예시('30만원 이하', '20만원대')는 남기고, 상품 가격 주장('20만원이에요')만 확인 불가로 바꾼다."""
+    v = check_output("예산은 30만원 이하, 50만원대, 10만 원 정도 중 어느 쪽인가요? 이 모델은 20만원이에요.",
+                     allowed_amounts=set())
+    assert "30만원 이하" in v.text and "50만원대" in v.text and "10만 원 정도" in v.text
+    assert "20만원이에요" not in v.text and v.unverified_amounts == 1

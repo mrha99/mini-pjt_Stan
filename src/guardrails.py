@@ -307,6 +307,8 @@ def check_input(question: str, use_llm: bool = True) -> InputVerdict:
 
 
 _AMOUNT = re.compile(r"(\d{1,3}(?:,\d{3})+|\d+)\s*(만\s*)?원")
+# "30만원 이하", "20만원대"처럼 예산 범위를 말하는 표현은 상품 가격 주장이 아니다 (되묻기 예시 등)
+_RANGE_AFTER = re.compile(r"\s*(이하|이상|미만|초과|대|안쪽|이내|정도|선|까지|부터|~)")
 
 
 def amounts_in(text: str) -> set[int]:
@@ -352,7 +354,7 @@ def check_output(answer: str, allowed_links: set[str] | None = None,
         def _amt(m: re.Match) -> str:
             nonlocal unverified
             v = int(m.group(1).replace(",", "")) * (10000 if m.group(2) else 1)
-            if v in allowed_amounts:
+            if v in allowed_amounts or _RANGE_AFTER.match(text, m.end()):
                 return m.group(0)
             unverified += 1
             return "[확인 불가]"

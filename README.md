@@ -73,6 +73,7 @@ LLM_MAX_CONCURRENCY=3          # Bedrock 동시 호출 수 상한
 LLM_MAX_ATTEMPTS=5             # LLM 일시 오류(분 단위 호출 한도 등) 재시도 횟수. 일일 토큰 한도는 재시도하지 않음
 LLM_RETRY_MAX_DELAY=8          # 재시도 대기 상한(초)
 API_WARMUP=1                   # 0이면 API 시작 시 임베딩·리랭커 예열 생략
+API_URL=http://localhost:8000  # Streamlit UI가 호출할 API 주소 (UI와 API를 따로 띄울 때 지정)
 ```
 
 `.env`는 `docker run --env-file`로 그대로 읽히므로 값 뒤에 주석이나 따옴표를 붙이지 않는다(위 예시의 `#` 주석은 설명용).
