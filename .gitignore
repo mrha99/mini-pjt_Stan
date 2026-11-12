@@ -5,4 +5,5 @@ __pycache__/
 .pytest_cache/
 data/chroma/
 .vscode/
-*.pdf.venv-clean/
+*.pdf
+.venv-clean/
