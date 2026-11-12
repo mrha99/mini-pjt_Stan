@@ -298,10 +298,12 @@ def _escape(text: str) -> str:
 
 
 def _wrap(tag: str, text: str, **attrs: str) -> str:
-    """신뢰할 수 없는 리뷰 텍스트를 데이터 구분 태그로 감싼다 (태그 탈출 방지).
-    7단계에서 guardrails의 지시문 제거를 여기에 연결한다."""
+    """신뢰할 수 없는 리뷰 텍스트를 정화(지시문 제거·PII 마스킹, 정책 2·3)한 뒤 데이터 구분 태그로 감싼다
+    (태그 탈출 방지). 검색 결과는 tools에서 이미 정화되지만 원문 리뷰도 여기를 거치므로 한 번 더 적용한다."""
+    from src.guardrails import clean_review_text
+
     attr = "".join(f' {k}="{_escape(str(v))}"' for k, v in attrs.items())
-    return f"<{tag}{attr}>{_escape(text)}</{tag}>"
+    return f"<{tag}{attr}>{_escape(clean_review_text(text))}</{tag}>"
 
 
 # ─────────────────────────────── 협찬 판별: 1차 규칙 ───────────────────────────────

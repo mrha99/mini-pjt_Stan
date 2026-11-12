@@ -37,7 +37,7 @@ from dotenv import load_dotenv
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from src.guardrails import mask_pii
+from src.guardrails import clean_review_text, mask_pii
 
 ROOT = Path(__file__).resolve().parent.parent
 PRODUCTS_PATH = ROOT / "data" / "products.json"
@@ -460,7 +460,10 @@ def fetch_reviews_impl(product_names: list[str],
         out = _fetch_blog(product_names, conditions)
     else:
         out = _fetch_sample(product_names)
-    out.indexed = _index_reviews(out.reviews)
+    out.indexed = _index_reviews(out.reviews)  # 색인은 원문 (협찬 규칙 라벨 계산용)
+    # 도구 출력 리뷰는 정화본: 지시문 제거·PII 마스킹 (SERVICE.md 정책 2·3)
+    out.reviews = [r.model_copy(update={"title": clean_review_text(r.title), "body": clean_review_text(r.body)})
+                   for r in out.reviews]
     return out
 
 
@@ -514,8 +517,11 @@ def retrieve_reviews_impl(queries: list[str],
         if indexer.get_collection().count() == 0:
             return RetrieveReviewsOutput(chunks=[], count=0, status="empty_index",
                                          notice="리뷰 색인이 비어 있습니다 (python -m src.indexer로 색인).")
-        chunks = [ReviewChunk.model_validate(c) for c in retriever.retrieve(queries, model_ids)]
-        refs = [ReviewChunk.model_validate(c) for c in retriever.retrieve_blog_refs(queries, model_ids)]
+        # 검색 결과 텍스트는 정화본으로 돌려준다: LLM·API contexts·답변 모두 지시문이 제거된 텍스트를 쓴다
+        chunks = [ReviewChunk.model_validate({**c, "text": clean_review_text(c["text"])})
+                  for c in retriever.retrieve(queries, model_ids)]
+        refs = [ReviewChunk.model_validate({**c, "text": clean_review_text(c["text"])})
+                for c in retriever.retrieve_blog_refs(queries, model_ids)]
     except Exception as exc:  # noqa: BLE001 - 에이전트가 오류를 보고 다음 행동을 고를 수 있게
         return RetrieveReviewsOutput(chunks=[], count=0, status="error",
                                      notice=f"리뷰 검색 실패: {type(exc).__name__}")

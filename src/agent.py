@@ -2,7 +2,12 @@
 
 LangGraph StateGraph로 만든 단일 ReAct 에이전트다.
 
-    START → agent(LLM: 도구 선택) ⇄ tools(도구 실행) → answer(chains.py로 최종 답변) → END
+    START → guardrail_input ─(차단)─────────────────────────────────────────────┐
+                    └→ agent(LLM: 도구 선택) ⇄ tools(도구 실행) → answer → guardrail_output → END
+
+- guardrail_input / guardrail_output: SERVICE.md 정책 5건 (src/guardrails.py). 차단되면 에이전트를 거치지 않고
+  거절 + 할 수 있는 일을 안내하며 trace에 정책 번호를 남긴다. 질문의 PII는 그래프에 넣기 전에 마스킹한다
+  (LangSmith에도 남지 않게, 정책 3). 리뷰 텍스트는 retrieve_reviews 결과와 chains._wrap에서 정화된다(정책 2).
 
 - agent: Claude(ChatBedrockConverse)에 도구 5종을 바인딩한다. 조건이 부족하면 도구 없이 되묻는다.
 - tools: LLM이 요청한 도구를 요청 순서대로 실행한다 (fetch_reviews로 색인 → retrieve_reviews로 검색).
@@ -39,7 +44,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from src import chains, retriever, tools
+from src import chains, guardrails, retriever, tools
 from src.guardrails import mask_pii
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -75,6 +80,8 @@ class AgentState(TypedDict, total=False):
     timings: Annotated[list[tuple[str, float]], operator.add]
     contexts: list[dict]
     answer: str
+    blocked: bool                    # 입력 가드레일 차단 여부
+    answer_source: str               # code(도구 결과 렌더링) / llm(에이전트 서술) / guardrail(거절 안내)
 
 
 class AgentResult(BaseModel):
@@ -384,14 +391,63 @@ def answer_node(state: AgentState) -> dict:
 
     tool_calls = state.get("tool_calls", 0)
     if parts:
-        answer = "\n\n".join(parts)
+        answer, source = "\n\n".join(parts), "code"
     else:
         answer = _final_ai_text(state) or "조건에 맞는 상품을 찾지 못했습니다. 다른 상품명이나 조건으로 다시 질문해 주세요."
+        source = "llm"
         summary = ("에이전트 응답", "되묻기" if tool_calls == 0 else "안내 (도구 결과 기반)")
-    answer = mask_pii(answer)
+    missing = [n for n in notices if n not in answer]   # 가드레일 안내(정책 1 등)는 어느 경로든 붙인다
+    if missing:
+        answer += "\n" + "\n".join(f"※ {n}" for n in missing)
     step = {"step": "answer", "input": _short(summary[0]), "output": _short(summary[1])}
-    return {"answer": answer, "contexts": [{"doc_id": c["doc_id"], "text": c["text"]} for c in contexts],
+    return {"answer": answer, "answer_source": source,
+            "contexts": [{"doc_id": c["doc_id"], "text": c["text"]} for c in contexts],
             "trace": [step], "timings": timings}
+
+
+# ─────────────────────────────── 노드: 가드레일 ───────────────────────────────
+
+
+def guardrail_input_node(state: AgentState) -> dict:
+    t = time.perf_counter()
+    v = guardrails.check_input(state["question"])
+    trace = [{"step": "guardrail_input", "input": _short(state["question"]), "output": _short(v.trace_output(), 200)}]
+    timing = [("guardrail_input", time.perf_counter() - t)]
+    if not v.allowed:
+        trace.append({"step": "answer", "input": "가드레일 차단",
+                      "output": f"거절 + 할 수 있는 일 안내 (SERVICE.md 정책 {v.policy})"})
+        return {"blocked": True, "answer": v.answer, "answer_source": "guardrail", "contexts": [],
+                "trace": trace, "timings": timing}
+    return {"blocked": False, "notices": list(v.notices), "trace": trace, "timings": timing}
+
+
+def _allowed_amounts(state: AgentState) -> set[int]:
+    """도구 결과·질문에 나온 금액 (LLM 서술 답변의 금액 검증용, 정책 1)."""
+    amounts: set[int] = set(guardrails.amounts_in(state.get("question", "")))
+    for p in (state.get("products") or {}).values():
+        amounts |= {p["price"], p.get("shipping_fee", 0)}
+        for d in p.get("card_discounts", []) + p.get("membership_discounts", []):
+            amounts |= {v for v in (d.get("max_discount"), d.get("min_amount")) if v}
+            if d.get("type") == "amount":
+                amounts.add(int(d["value"]))
+    for r in (state.get("real_prices") or {}).values():
+        amounts |= {r["price"], r["shipping_fee"], r["shipping_paid"], r["real_price"],
+                    r.get("membership_discount", 0), r.get("card_discount", 0)}
+        amounts |= {a["amount"] for a in r.get("applied", [])}
+    for h in state.get("price_histories") or []:
+        amounts |= {h["current_price"], h["min_price"], h["max_price"], h["avg_price"]}
+        amounts |= {pt["price"] for pt in h.get("points", [])}
+    return amounts
+
+
+def guardrail_output_node(state: AgentState) -> dict:
+    source = state.get("answer_source", "code")
+    links = {p["link"] for p in (state.get("products") or {}).values()}
+    links |= {c.get("link") for c in (state.get("chunks") or []) + (state.get("blog_refs") or []) if c.get("link")}
+    v = guardrails.check_output(state.get("answer", ""), allowed_links=links,
+                                allowed_amounts=_allowed_amounts(state) if source == "llm" else None)
+    step = {"step": "guardrail_output", "input": f"응답 초안 ({source})", "output": v.trace_output()}
+    return {"answer": v.text, "trace": [step]}
 
 
 # ─────────────────────────────── 그래프 ───────────────────────────────
@@ -424,13 +480,18 @@ def _after_tools(state: AgentState) -> str:
 
 def build_graph():
     g = StateGraph(AgentState)
+    g.add_node("guardrail_input", guardrail_input_node)
     g.add_node("agent", agent_node)
     g.add_node("tools", tools_node)
     g.add_node("answer", answer_node)
-    g.add_edge(START, "agent")
+    g.add_node("guardrail_output", guardrail_output_node)
+    g.add_edge(START, "guardrail_input")
+    g.add_conditional_edges("guardrail_input", lambda s: "guardrail_output" if s.get("blocked") else "agent",
+                            {"agent": "agent", "guardrail_output": "guardrail_output"})
     g.add_conditional_edges("agent", _after_agent, {"tools": "tools", "answer": "answer"})
     g.add_conditional_edges("tools", _after_tools, {"agent": "agent", "answer": "answer"})
-    g.add_edge("answer", END)
+    g.add_edge("answer", "guardrail_output")
+    g.add_edge("guardrail_output", END)
     return g.compile()
 
 
@@ -502,6 +563,7 @@ def run(question: str, with_langsmith: bool = False) -> AgentResult:
     from langchain_core.callbacks import get_usage_metadata_callback
 
     run_id = str(uuid.uuid4())
+    question = mask_pii(question)   # 사용자 입력 PII는 그래프·LangSmith·로그에 남기지 않는다 (정책 3)
     config = {"run_name": "shopping_agent", "run_id": run_id, "recursion_limit": 40,
               "tags": ["shopping-agent"],
               "metadata": {"review_source": os.getenv("REVIEW_SOURCE", "sample"),
