@@ -29,6 +29,8 @@ DEMO_QUESTIONS = [
     ("어디서 사야 쌀까", "클린웨이브 V7 사일런트 무선청소기 어디서 사는 게 제일 싸? 나는 누리카드랑 바로플러스 멤버십 있어"),
     ("조건 없이 물어보기", "청소기 추천해줘"),
 ]
+DEMO_ICONS = [":material/meeting_room:", ":material/payments:", ":material/chat:"]  # 방(원룸) · 결제(어디서 싸게) · 말풍선(되묻기)
+HOME_ICON = ":material/home:"  # 웹 표준 '처음 화면' 기호. 예시 버튼과 겹치지 않게 홈 전용으로만 쓴다
 TOOL_STEPS = {"search_products", "fetch_reviews", "retrieve_reviews", "query_price_db", "calc_real_price"}
 STEP_LABELS = {
     "guardrail_input": "입력 점검", "search_products": "상품 검색", "fetch_reviews": "리뷰 수집",
@@ -148,11 +150,17 @@ CSS = """
 .jh-label { margin: 18px 0 6px; font-size: 13px; font-weight: 600; color: var(--jh-ink2); }
 
 /* ── demo chips ── */
-.st-key-jh-demo button { min-height: 44px; border-radius: 999px; border: 1px solid var(--jh-rule);
-                         background: var(--jh-surface); color: var(--jh-ink); transition: border-color .15s, background-color .15s; }
-.st-key-jh-demo button:hover { border-color: var(--jh-accent); background: var(--jh-accent-soft); color: var(--jh-ink); }
-.st-key-jh-demo button p { font-size: 14.5px; font-weight: 500; white-space: nowrap; }
-.st-key-jh-new button { background: transparent; border-style: dashed; }
+/* 예시 질문 3개: 옅은 보라(accent-soft) 바탕 + 보라 글자(라이트 5.2:1, 다크 5.8:1). 마우스 올림·누름은 진한 보라로 채운다.
+   '새 대화'는 대화를 지우는 버튼이라 회색 점선으로 한 단계 낮춘다. 포커스 링은 전역 :focus-visible 그대로 */
+.st-key-jh-demo button { min-height: 44px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--jh-accent) 25%, transparent);
+                         background: var(--jh-accent-soft); color: var(--jh-accent); transition: border-color .15s, background-color .15s, color .15s; }
+.st-key-jh-demo button p, .st-key-jh-demo button span { color: inherit; }
+.st-key-jh-demo button:hover, .st-key-jh-demo button:active { border-color: var(--jh-accent); background: var(--jh-accent); color: var(--jh-on-accent); }
+.st-key-jh-demo button p { font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+.st-key-jh-demo .st-key-jh-new button { background: transparent; border: 1px dashed var(--jh-rule); color: var(--jh-ink2); }
+.st-key-jh-demo .st-key-jh-new button p { font-weight: 500; }
+.st-key-jh-demo .st-key-jh-new button:hover, .st-key-jh-demo .st-key-jh-new button:active {
+  background: var(--jh-surface); border-color: var(--jh-ink2); color: var(--jh-ink); }
 
 /* ── shared card ── */
 .jh-card { background: var(--jh-surface); border: 1px solid var(--jh-rule); border-radius: 14px; box-shadow: var(--jh-shadow);
@@ -338,6 +346,17 @@ CSS = """
 [data-testid="stChatInputSubmitButton"]:not(:disabled):hover { filter: brightness(1.08); }
 [data-testid="stChatInputSubmitButton"]:focus-visible { outline: 2px solid var(--jh-accent); outline-offset: 2px; }
 [data-testid="stBottom"] > div, [data-testid="stBottomBlockContainer"] { background: var(--jh-paper); }
+/* 조회 결과 화면 하단 줄: [홈 버튼][입력창]. 입력창 높이 64px → 52px(약 20% 축소): 안쪽 위아래 여백 12px → 6px.
+   글자 크기는 16px 유지(모바일 확대 방지). 홈 버튼은 입력창과 같은 52px 높이 */
+.st-key-jh-input-chat [data-testid="stChatInput"] > div { padding-top: 6px !important; padding-bottom: 6px !important; }
+/* 홈 버튼: 옅은 보라 바탕(accent-soft) + 보라 아이콘·글자 (대비 라이트 5.2:1 · 다크 5.8:1).
+   흰 입력창 옆에서 바로 눈에 띄고, 진한 보라 전송 버튼보다는 한 단계 낮다. 마우스 올림·누름은 진한 보라 + 흰 글자(6.1:1 · 7.0:1) */
+.st-key-jh-home button { height: 52px; min-height: 52px; padding: 0 14px; border-radius: 14px;
+                         border: 1px solid color-mix(in srgb, var(--jh-accent) 25%, transparent);
+                         background: var(--jh-accent-soft); color: var(--jh-accent); transition: border-color .15s, background-color .15s, color .15s; }
+.st-key-jh-home button p, .st-key-jh-home button span { color: inherit; font-size: 14.5px; font-weight: 600; white-space: nowrap; }
+.st-key-jh-home button:hover, .st-key-jh-home button:active { border-color: var(--jh-accent); background: var(--jh-accent); color: var(--jh-on-accent); }
+.st-key-jh-chatbar { align-items: center; }
 [data-testid="stBottomBlockContainer"] { max-width: 780px; padding-top: 12px; padding-bottom: 20px; }
 [data-testid="stMainBlockContainer"] { max-width: 1000px; }
 [data-testid="stChatMessage"]:has([class*="st-key-jh-bot"]) { max-width: 780px; }
@@ -734,7 +753,7 @@ def main() -> None:
     with st.container(key="jh-demo"):
         cols = st.columns(len(DEMO_QUESTIONS) + 1)
         for i, (col, (label, q)) in enumerate(zip(cols, DEMO_QUESTIONS)):
-            if col.button(label, key=f"jh-demo-{i}", use_container_width=True, help=q):
+            if col.button(label, key=f"jh-demo-{i}", icon=DEMO_ICONS[i], use_container_width=True, help=q):
                 clicked = q
         if cols[-1].button("새 대화", key="jh-new", icon=":material/refresh:", use_container_width=True):
             ss.messages, ss.pending = [], None
@@ -770,7 +789,12 @@ def main() -> None:
         with st.container(key="jh-inline-input"):
             typed = st.chat_input(placeholder, key="jh-input-landing")
     else:
-        typed = st.chat_input(placeholder, key="jh-input-chat")
+        # 조회 결과 화면: 화면 하단 고정 줄에 [홈][입력창]을 나란히 둔다 (가로 배치라 모바일에서도 쌓이지 않음)
+        with st.bottom, st.container(key="jh-chatbar", horizontal=True, wrap=False, vertical_alignment="center", gap="small"):
+            if st.button("홈", key="jh-home", icon=HOME_ICON, help="처음 화면으로 (대화 지우기)"):
+                ss.messages, ss.pending = [], None
+                st.rerun()
+            typed = st.chat_input(placeholder, key="jh-input-chat")
     if typed and typed.strip():
         handle(typed.strip())
         ss.scroll_to_new = True

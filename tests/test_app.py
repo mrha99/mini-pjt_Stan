@@ -138,6 +138,14 @@ def test_new_conversation_button_clears(fake_api):
     assert at.session_state.messages == [] and at.session_state.pending is None
 
 
+def test_home_button_in_chat_view_returns_to_landing(fake_api):
+    at = AppTest.from_file(APP, default_timeout=30).run()
+    assert not [b for b in at.button if b.key == "jh-home"]          # 랜딩에는 홈 버튼 없음
+    at.chat_input[0].set_value("청소기 추천해줘").run()
+    at.button(key="jh-home").click().run()
+    assert at.session_state.messages == [] and at.session_state.pending is None
+
+
 CARD_ANSWER = """조건에 맞는 무선청소기 2개를 추천합니다. (샘플 데이터)
 ※ 조건에 맞는 모델이 2개뿐이라 2개만 추천합니다.
 
