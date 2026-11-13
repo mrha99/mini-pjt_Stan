@@ -226,6 +226,19 @@ CSS = """
 .stApp .jh-feat h3 { margin: 6px 0 0; padding: 0; font-size: 15.5px; font-weight: 700; color: var(--jh-ink); }
 .jh-feat p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--jh-ink2); }
 .jh-spec { margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--jh-rule); font: 500 12px/1.5 var(--jh-mono); color: var(--jh-ink2); }
+/* 기능 더 보기 (접기/펼치기) — 버튼 높이 44px, 포커스 링은 전역 :focus-visible 그대로 */
+.jh-more { margin: 12px 0 0; }
+.jh-more summary { list-style: none; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 16px;
+                   border-radius: 999px; border: 1px solid var(--jh-rule); background: var(--jh-surface); color: var(--jh-ink);
+                   font-size: 14px; font-weight: 600; cursor: pointer; transition: border-color .15s, background-color .15s; }
+.jh-more summary::-webkit-details-marker { display: none; }
+.jh-more summary:hover { border-color: var(--jh-accent); background: var(--jh-accent-soft); }
+.jh-more summary svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round;
+                       stroke-linejoin: round; transition: transform .2s; }
+.jh-more[open] summary svg { transform: rotate(180deg); }
+.jh-more .c, .jh-more[open] .o { display: none; }
+.jh-more[open] .c { display: inline; }
+.jh-more[open] .jh-feats { margin-top: 12px; animation: jh-up .25s ease both; }
 .jh-try-label { margin: 40px 0 6px; font-size: 13px; font-weight: 600; color: var(--jh-ink2); }
 .st-key-jh-inline-input { margin-top: 8px; }
 @media (max-width: 900px) { .jh-feats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -447,13 +460,24 @@ def _ico(path: str) -> str:
     return f'<svg viewBox="0 0 24 24" aria-hidden="true">{path}</svg>'
 
 
+_FEATURES_SHOWN = 3  # 핵심 차별점(협찬 걸러내기·실결제가·근거 공개)은 항상 보이고, 나머지는 접어 둔다
+_CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>'
+
+
+def _feat_cards(rows) -> str:
+    return "".join(f'<article class="jh-feat"><span class="jh-feat-ico">{_ico(p)}</span><h3>{t}</h3><p>{d}</p>'
+                   f'<span class="jh-spec">{s}</span></article>' for p, t, d, s in rows)
+
+
+_MORE_N = len(_FEATURES) - _FEATURES_SHOWN
+# 접기는 HTML <details>: 다시 그리기(rerun) 없이 열리고 키보드(Tab·Enter·Space)·화면 낭독기를 기본 지원한다
 FEATURES_HTML = (
     '<section class="jh-section" aria-labelledby="jh-feat-title">'
     '<p class="jh-kicker">AI가 하는 일</p><h2 id="jh-feat-title" class="jh-h2">추천만 하지 않고, 근거와 가격까지 확인합니다</h2>'
-    '<div class="jh-feats">'
-    + "".join(f'<article class="jh-feat"><span class="jh-feat-ico">{_ico(p)}</span><h3>{t}</h3><p>{d}</p>'
-              f'<span class="jh-spec">{s}</span></article>' for p, t, d, s in _FEATURES)
-    + "</div></section>"
+    f'<div class="jh-feats">{_feat_cards(_FEATURES[:_FEATURES_SHOWN])}</div>'
+    f'<details class="jh-more"><summary><span class="o">기능 {_MORE_N}개 더 보기</span><span class="c">접기</span>{_CHEVRON}</summary>'
+    f'<div class="jh-feats">{_feat_cards(_FEATURES[_FEATURES_SHOWN:])}</div></details>'
+    "</section>"
 )
 
 

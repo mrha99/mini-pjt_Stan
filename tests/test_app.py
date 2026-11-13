@@ -176,6 +176,12 @@ def test_card_html_escapes_text_and_blocks_non_http_links():
     assert 'href="javascript' not in out
 
 
+def test_features_show_core_three_and_fold_rest():
+    shown, folded = app.FEATURES_HTML.split("<details", 1)
+    assert shown.count('class="jh-feat"') == 3 and "협찬 후기 걸러내기" in shown and "실결제가" in shown
+    assert folded.count('class="jh-feat"') == 3 and "기능 3개 더 보기" in folded and "<summary>" in folded
+
+
 def test_build_question_flattens_multiline_clarify():
     pending = {"question": "청소기 추천해줘", "turns": 1,
                "clarify": "알려주세요!\n\n1. **예산**은요?\n2. **사용 환경**은요?"}
