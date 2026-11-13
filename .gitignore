@@ -9,3 +9,4 @@ data/chroma/
 .venv-clean/
 evaluation/.server_*.log
 .archify/
+.claude/
