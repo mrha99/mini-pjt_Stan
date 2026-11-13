@@ -2,7 +2,7 @@
 
 협찬 리뷰를 걸러낸 실구매 후기와 '내 조건 기준 실결제가'로 상품 Top 3를 근거와 함께 추천하는 쇼핑 비교 Agentic RAG 에이전트 (2일 MVP 과제).
 
-설계 기준 문서: `PRD.md`(설계), `SERVICE.md`(서비스 스펙·정책), `README.md`(제출 문서), `DEV_PROMPTS.md`(단계별 개발 절차).
+설계 기준 문서: `PRD.md`(설계), `SERVICE.md`(서비스 스펙·정책), `README.md`(제출 문서), `TASKS.md`(단계별 개발 절차).
 **설계가 바뀌면 코드보다 PRD.md를 먼저 수정하고, SERVICE.md·README.md를 맞춘다.**
 
 ## 적용 패턴
@@ -95,7 +95,7 @@ tests/    pytest (도구·API)
 
 ## 작업 방식
 
-- `DEV_PROMPTS.md`의 단계를 하나씩 진행한다: 완료 기준 확인 → 테스트 → 커밋 → 다음 단계.
+- `TASKS.md`의 단계를 하나씩 진행한다: 완료 기준 확인 → 테스트 → 커밋 → 다음 단계.
 - 11단계(1차 평가) 직전 커밋은 기준선으로 반드시 남긴다.
 - 테스트: `.venv/Scripts/python -m pytest tests/`
 - 실행: `bash run.sh` (가격 DB·인덱싱(없을 때만) → uvicorn 8000 → streamlit 8501), Docker는 README 2-A 참고.

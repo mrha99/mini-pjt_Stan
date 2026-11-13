@@ -1,4 +1,4 @@
-# DEV_PROMPTS · 진짜후기 쇼핑 비교 에이전트
+# TASKS · 진짜후기 쇼핑 비교 에이전트
 
 PRD.md, SERVICE.md, README.md를 기준으로 한 단계별 개발 절차와 AI 코딩 도구(Claude Code 등)용 프롬프트 모음.
 

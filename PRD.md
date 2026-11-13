@@ -368,7 +368,7 @@ mini-pjt_Stan/
 │   ├── round1_report.md       # 1차 자체 평가 결과 (Day 9)
 │   └── round2_report.md       # 2차 자체 평가 결과 (Day 10 · 개선 후)
 ├── PRD.md                     # 제품 요구사항 문서 (5W1H·설계 기준, 템플릿 외 추가)
-├── DEV_PROMPTS.md             # 단계별 개발 절차·프롬프트와 완료 기준 (템플릿 외 추가)
+├── TASKS.md                   # 단계별 개발 절차·프롬프트와 완료 기준 (템플릿 외 추가)
 ├── SERVICE.md                 # 서비스 스펙 (§4-3 템플릿)
 ├── Dockerfile                 # 클린 환경 재현
 ├── requirements.txt           # 버전 고정

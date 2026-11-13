@@ -21,4 +21,4 @@ data/prices.db
 # 제출 산출물이지만 실행에 필요 없는 파일
 tests/
 *.pdf
-DEV_PROMPTS.md
+TASKS.md
