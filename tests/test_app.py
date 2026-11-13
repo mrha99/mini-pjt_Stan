@@ -92,8 +92,8 @@ def test_api_url_from_env(monkeypatch):
 
 def test_demo_button_shows_answer_contexts_and_trace(fake_api):
     at = AppTest.from_file(APP, default_timeout=30).run()
-    assert [b.label for b in at.button][:3] == [label for label, _ in app.DEMO_QUESTIONS]
-    at.button[0].click().run()
+    assert [at.button(key=f"jh-demo-{i}").label for i in range(3)] == [label for label, _ in app.DEMO_QUESTIONS]
+    at.button(key="jh-demo-0").click().run()
     assert fake_api == [app.DEMO_QUESTIONS[0][1]]
     assert "조건에 맞는 무선청소기 3개를 추천합니다" in _texts(at)
     labels = [e.label for e in at.expander]
@@ -115,7 +115,7 @@ def test_clarify_then_answer_continues_to_recommendation(fake_api):
 def test_demo_button_resets_pending_clarify(fake_api):
     at = AppTest.from_file(APP, default_timeout=30).run()
     at.chat_input[0].set_value("청소기 추천해줘").run()
-    at.button[0].click().run()
+    at.button(key="jh-demo-0").click().run()
     assert fake_api[-1] == app.DEMO_QUESTIONS[0][1]               # 데모 질문은 이어 붙이지 않음
 
 
@@ -134,8 +134,46 @@ def test_error_responses_shown(fake_api, monkeypatch):
 def test_new_conversation_button_clears(fake_api):
     at = AppTest.from_file(APP, default_timeout=30).run()
     at.chat_input[0].set_value("청소기 추천해줘").run()
-    at.button[len(app.DEMO_QUESTIONS)].click().run()
+    at.button(key="jh-new").click().run()
     assert at.session_state.messages == [] and at.session_state.pending is None
+
+
+CARD_ANSWER = """조건에 맞는 무선청소기 2개를 추천합니다. (샘플 데이터)
+※ 조건에 맞는 모델이 2개뿐이라 2개만 추천합니다.
+
+1) 클린웨이브 V7 사일런트 · 최저 실결제가 227,050원(바로마켓, 배송비 포함) · 판매처 2곳 비교
+   요약: 원룸에서 <b>조용히</b> 쓰기 좋은 가벼운 모델
+   판매처별 실결제가 [샘플 데이터]:
+   - 바로마켓: 판매가 239,000원 + 배송비 3,000원 - 할인 14,950원(바로플러스) = 227,050원 · https://baro-market.example.com/products/VC-002
+   - 모아딜: 판매가 255,000원 + 배송비 0원 - 할인 25,500원(누리카드) = 229,500원 · javascript:alert(1)
+   추천 근거:
+   - 밤에 돌려도 옆집 눈치가 안 보인다는 후기 [1][2]
+   단점(실구매 후기): 먼지통이 작음 [1]; 강모드 배터리 짧음
+   리뷰 구분: 이 모델 리뷰 11건 중 협찬 표시 4건은 근거에서 제외
+
+출처 (실구매 후기):
+[1] V7 사일런트 솔직 후기 · https://blog.example.com/a
+[2] 한 달 실사용기 · https://blog.example.com/b
+※ 가격 DB 캐시 기준"""
+
+
+def test_parse_answer_splits_cards_and_sources():
+    p = app.parse_answer(CARD_ANSWER)
+    assert p["intro"][0].startswith("조건에 맞는") and len(p["intro"]) == 2
+    (c,) = p["cards"]
+    assert (c["rank"], c["name"], c["price"], c["malls_n"]) == ("1", "클린웨이브 V7 사일런트", "227,050원", "2")
+    assert [m["mall"] for m in c["malls"]] == ["바로마켓", "모아딜"]
+    assert c["pros"] == [("밤에 돌려도 옆집 눈치가 안 보인다는 후기", "[1][2]")]
+    assert c["cons"] == [("먼지통이 작음", "[1]"), ("강모드 배터리 짧음", "")]
+    assert [s["n"] for s in p["sources"]] == ["1", "2"] and p["notices"] == ["가격 DB 캐시 기준"]
+    assert app.parse_answer("예산과 사용 환경을 알려주세요.") is None
+
+
+def test_card_html_escapes_text_and_blocks_non_http_links():
+    out = app.card_html(app.parse_answer(CARD_ANSWER)["cards"][0])
+    assert "<b>조용히</b>" not in out and "&lt;b&gt;조용히&lt;/b&gt;" in out
+    assert 'href="https://baro-market.example.com/products/VC-002"' in out and "javascript:" not in out.split("모아딜")[0]
+    assert 'href="javascript' not in out
 
 
 def test_build_question_flattens_multiline_clarify():
